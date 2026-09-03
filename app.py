@@ -9,15 +9,17 @@ from streamlit_drawable_canvas import st_canvas
 
 # 1. Seitenkonfiguration
 st.set_page_config(
-    page_title="Zählerprotokoll KARE", page_icon="⚡", layout="centered"
+    page_title="Zählerprotokoll KARE",
+    page_icon="⚡",
+    layout="centered",
+    initial_sidebar_state="expanded",
 )
 
-# 2. Modernes CSS Styling einfügen
+# 2. Modernes CSS Styling einfügen (lässt den Header normal sichtbar, damit der Standard-Pfeil wieder da ist)
 st.markdown(
     """
 <style>
     #MainMenu {visibility: hidden;}
-    header {visibility: hidden;}
     footer {visibility: hidden;}
     
     .block-container {
@@ -295,31 +297,17 @@ with st.sidebar:
                             st.rerun()
 
 
-# --- HEADER BEREICH IN DER APP & EIGENER MENÜ-BUTTON ---
-col_btn, col_logo = st.columns([1, 4])
-
-with col_btn:
-    # JavaScript-Befehl im Streamlit-Button, um die Sidebar per Klick zu öffnen/schließen
+# --- HEADER BEREICH IN DER HÄUPTSEITE ---
+logo_path = "kare_logo.png"
+if os.path.exists(logo_path):
+    st.image(logo_path, width=400)
+else:
+    st.warning("⚠️ Hinweis: Die Datei 'kare_logo.png' wurde nicht gefunden.")
     st.markdown(
-        """
-        <button onclick="parent.window.dispatchEvent(new KeyboardEvent('keydown', {key: 'm', ctrlKey: true, bubbles: true}));" 
-                style="background-color: #2e7d32; color: white; border: none; padding: 10px 15px; border-radius: 8px; font-weight: bold; cursor: pointer; height: 3rem; width: 100%;">
-            📂 Menü
-        </button>
-        """,
+        "<h1 style='text-align: center;'>⚡ KARE-Immobilien"
+        " Zählerprotokoll</h1>",
         unsafe_allow_html=True,
     )
-
-with col_logo:
-    logo_path = "kare_logo.png"
-    if os.path.exists(logo_path):
-        st.image(logo_path, width=350)
-    else:
-        st.warning("⚠️ Hinweis: Die Datei 'kare_logo.png' wurde nicht gefunden.")
-        st.markdown(
-            "<h3 style='margin: 0;'>⚡ KARE-Immobilien Zählerprotokoll</h3>",
-            unsafe_allow_html=True,
-        )
 
 st.write("")
 
@@ -595,8 +583,7 @@ if st.button(
             pdf.ln(2)
 
             x_start = 14
-            y_start = pdf.get_y()
-            img_width = 56
+            y_start = pdf.get_y()            img_width = 56
             img_height = 42
             x_gap = 6
             y_gap = 8
