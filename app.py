@@ -1,4 +1,5 @@
 from datetime import datetime
+import json
 import os
 import tempfile
 from fpdf import FPDF
@@ -8,14 +9,13 @@ from streamlit_drawable_canvas import st_canvas
 
 # 1. Seitenkonfiguration
 st.set_page_config(
-    page_title="Zählerprotokoll", page_icon="⚡", layout="centered"
+    page_title="Zählerprotokoll KARE", page_icon="⚡", layout="centered"
 )
 
 # 2. Modernes CSS Styling einfügen
 st.markdown(
     """
 <style>
-    /* Blendet das Streamlit-Menü und Footer aus */
     #MainMenu {visibility: hidden;}
     header {visibility: hidden;}
     footer {visibility: hidden;}
@@ -102,91 +102,138 @@ class ModernPDF(FPDF):
         self.ln(4)
 
 
-# --- ARCHIV-ORDNER INITIALISIEREN ---
+# --- DATENBANK & ARCHIV VERWALTUNG (PERSISTENT ÜBER JSON) ---
 ARCHIV_DIR = "archiv_protokolle"
+DB_FILE = "archiv_datenbank.json"
+
 if not os.path.exists(ARCHIV_DIR):
     os.makedirs(ARCHIV_DIR)
 
-# Session State für die Archiv-Liste initialisieren
+
+def lade_datenbank():
+    if os.path.exists(DB_FILE):
+        try:
+            with open(DB_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return []
+    return []
+
+
+def speichere_datenbank(daten):
+    with open(DB_FILE, "w", encoding="utf-8") as f:
+        json.dump(daten, f, ensure_ascii=False, indent=4)
+
+
+# Session State initialisieren
 if "archiv_historie" not in st.session_state:
-    st.session_state.archiv_historie = []
-    if os.path.exists(ARCHIV_DIR):
-        for f in sorted(os.listdir(ARCHIV_DIR), reverse=True):
-            if f.endswith(".pdf"):
-                file_path = os.path.join(ARCHIV_DIR, f)
-                st.session_state.archiv_historie.append({
-                    "name": f,
-                    "pfad": file_path,
-                    "zeit": datetime.fromtimestamp(
-                        os.path.getmtime(file_path)
-                    ).strftime("%d.%m.%Y %H:%M"),
-                })
+    st.session_state.archiv_historie = lade_datenbank()
+
+if "delete_target" not in st.session_state:
+    st.session_state.delete_target = None
 
 
-# --- SEITENLEISTE (ARCHIV & LÖSCH-LOGIK) ---
+# --- SEITENLEISTE (GEORDNET NACH JAHREN UND STRASSEN) ---
 with st.sidebar:
     st.image(
         "kare_logo.png" if os.path.exists("kare_logo.png") else "", width=150
     )
-    st.title("📂 Archiv & Menü")
+    st.title("📂 Archiv nach Jahr & Straße")
     st.write(
-        "Hier findest du alle im Archiv gespeicherten Protokolle zum Abruf oder zum Löschen."
+        "Hier bleiben alle Protokolle dauerhaft gespeichert – sortiert nach Jahren und Straßen."
     )
     st.divider()
 
     if not st.session_state.archiv_historie:
         st.info("Noch keine Protokolle im Archiv vorhanden.")
     else:
-        # State-Variablen für Bestätigungsdialoge initialisieren
-        if "delete_target" not in st.session_state:
-            st.session_state.delete_target = None
+        # Nach Jahren gruppieren (absteigend, z.B. 2026, 2025...)
+        jahre_dict = {}
+        for item in st.session_state.archiv_historie:
+            # Jahr aus dem Erstellungsdatum extrahieren oder Fallback auf aktuelles Jahr
+            zeit_str = item.get("zeit", "")
+            jahr = (
+                zeit_str.split(".")[2][:4]
+                if len(zeit_str) >= 10
+                else str(datetime.now().year)
+            )
+            if jahr not in jahre_dict:
+                jahre_dict[jahr] = []
+            jahre_dict[jahr].append(item)
 
-        for index, item in enumerate(st.session_state.archiv_historie):
-            st.markdown(f"**📄 {item['name']}**")
-            st.caption(f"Erstellt am: {item['zeit']}")
+        for jahr in sorted(jahre_dict.keys(), reverse=True):
+            with st.expander(f"📅 Jahr {jahr} ({len(jahre_dict[jahr])})"):
+                # Innerhalb des Jahres nach Straßen gruppieren
+                strassen_dict = {}
+                for item in jahre_dict[jahr]:
+                    strasse = item.get("strasse", "Unbekannte Straße")
+                    if strasse not in strassen_dict:
+                        strassen_dict[strasse] = []
+                    strassen_dict[strasse].append(item)
 
-            if os.path.exists(item["pfad"]):
-                # Download-Button
-                with open(item["pfad"], "rb") as pdf_file:
-                    st.download_button(
-                        label="📥 Herunterladen",
-                        data=pdf_file,
-                        file_name=item["name"],
-                        mime="application/pdf",
-                        key=f"dl_{index}_{item['name']}",
-                    )
+                for strasse, eintraege in strassen_dict.items():
+                    st.markdown(f"📍 **{strasse}**")
+                    for item in eintraege:
+                        # Original-Index in der Hauptliste finden
+                        real_index = st.session_state.archiv_historie.index(
+                            item
+                        )
 
-                # Löschen-Knopf
-                if st.button("🗑️ Löschen", key=f"btn_del_{index}_{item['name']}"):
-                    st.session_state.delete_target = item["name"]
+                        st.caption(
+                            f"👤 {item['mieter']} ({item.get('zeit', '')})"
+                        )
 
-                # Sicherheitsabfrage (erscheint direkt unter dem Protokoll, wenn angeklickt)
-                if st.session_state.delete_target == item["name"]:
-                    st.warning(
-                        "Möchtest du dieses Protokoll wirklich unwiderruflich"
-                        " löschen?"
-                    )
-                    col_y, col_n = st.columns(2)
-                    with col_y:
-                        if st.button(
-                            "Ja", key=f"yes_{index}_{item['name']}"
-                        ):
-                            # Datei physisch löschen
-                            if os.path.exists(item["pfad"]):
-                                os.remove(item["pfad"])
-                            # Aus Historie entfernen
-                            st.session_state.archiv_historie.pop(index)
-                            st.session_state.delete_target = None
-                            st.success("Protokoll gelöscht!")
-                            st.rerun()
-                    with col_n:
-                        if st.button(
-                            "Nein", key=f"no_{index}_{item['name']}"
-                        ):
-                            st.session_state.delete_target = None
-                            st.rerun()
+                        if os.path.exists(item["pfad"]):
+                            with open(item["pfad"], "rb") as pdf_file:
+                                st.download_button(
+                                    label="📥 PDF laden",
+                                    data=pdf_file,
+                                    file_name=item["name"],
+                                    mime="application/pdf",
+                                    key=f"dl_{real_index}_{item['name']}",
+                                )
 
-            st.divider()
+                            # Löschen-Button
+                            if st.button(
+                                "🗑️ Löschen",
+                                key=f"btn_del_{real_index}_{item['name']}",
+                            ):
+                                st.session_state.delete_target = item["name"]
+
+                            # Sicherheitsabfrage
+                            if (
+                                st.session_state.delete_target == item["name"]
+                            ):
+                                st.warning(
+                                    "Wirklich unwiderruflich löschen?"
+                                )
+                                col_y, col_n = st.columns(2)
+                                with col_y:
+                                    if st.button(
+                                        "Ja",
+                                        key=f"yes_{real_index}_{item['name']}",
+                                    ):
+                                        if os.path.exists(item["pfad"]):
+                                            os.remove(item["pfad"])
+                                        st.session_state.archiv_historie.pop(
+                                            real_index
+                                        )
+                                        speichere_datenbank(
+                                            st.session_state.archiv_historie
+                                        )
+                                        st.session_state.delete_target = None
+                                        st.success("Gelöscht!")
+                                        st.rerun()
+                                with col_n:
+                                    if st.button(
+                                        "Nein",
+                                        key=f"no_{real_index}_{item['name']}",
+                                    ):
+                                        st.session_state.delete_target = None
+                                        st.rerun()
+                        else:
+                            st.error("PDF-Datei nicht gefunden.")
+                        st.markdown("---")
 
 
 # --- HEADER BEREICH IN DER APP ---
@@ -194,23 +241,52 @@ logo_path = "kare_logo.png"
 if os.path.exists(logo_path):
     st.image(logo_path, width=400)
 else:
-    st.warning(
-        "⚠️ Hinweis: Die Datei 'kare_logo.png' wurde nicht im App-Ordner gefunden."
-    )
+    st.warning("⚠️ Hinweis: Die Datei 'kare_logo.png' wurde nicht gefunden.")
     st.markdown(
-        "<h1 style='text-align: center;'>⚡ KARE-Immobilien Zählerprotokoll</h1>",
+        "<h1 style='text-align: center;'>⚡ KARE-Immobilien"
+        " Zählerprotokoll</h1>",
         unsafe_allow_html=True,
     )
 
 st.write("")
 
-# --- ABSCHNITT 1: STAMMDATEN ---
+# --- ABSCHNITT 1: STAMMDATEN & STRASSEN-RUBRIK ---
 with st.container(border=True):
-    st.subheader("👤 1. Stammdaten")
+    st.subheader("👤 1. Stammdaten & Straßen-Rubrik")
+
+    # Bestehende Straßen aus dem Archiv extrahieren für das Dropdown
+    vorhandene_strassen = sorted(
+        list(
+            set(
+                item.get("strasse", "Talstraße 32")
+                for item in st.session_state.archiv_historie
+            )
+        )
+    )
+    if "Talstraße 32" not in vorhandene_strassen:
+        vorhandene_strassen.insert(0, "Talstraße 32")
+    vorhandene_strassen.append("➕ Neue Straße eingeben...")
+
+    col_str1, col_str2 = st.columns(2)
+    with col_str1:
+        strassen_auswahl = st.selectbox(
+            "Straße (Rubrik-Auswahl)", vorhandene_strassen
+        )
+        if strassen_auswahl == "➕ Neue Straße eingeben...":
+            strasse = st.text_input(
+                "Geben Sie den Namen der neuen Straße ein:"
+            )
+        else:
+            strasse = strassen_auswahl
+
+    with col_str2:
+        ort = st.text_input("Ort, PLZ", value="07545 Gera")
+
     col1, col2 = st.columns(2)
     with col1:
-        wohnung = st.text_input("Adresse der Wohnung (Straße, Hausnr.)")
-        ort = st.text_input("Ort, PLZ")
+        wohnung = st.text_input(
+            "Genaue Adresse / Wohnung (z.B. Talstr. 32, Whg 2)"
+        )
         mieter = st.text_input("Name des Mieters")
     with col2:
         vermieter = st.text_input("Name des Vermieters", value="KARE-Immobilien")
@@ -343,12 +419,15 @@ st.write("")
 
 # --- SPEICHERN BUTTON & PDF GENERIERUNG ---
 if st.button(
-    "📄 Protokoll generieren & im Archiv speichern",
+    "📄 Protokoll generieren & permanent speichern",
     type="primary",
     use_container_width=True,
 ):
-    if not wohnung or not mieter:
-        st.error("Bitte fülle mindestens die Adresse und den Namen des Mieters aus!")
+    if not wohnung or not mieter or not strasse:
+        st.error(
+            "Bitte fülle mindestens die Straße, die Objektadresse und den Namen"
+            " des Mieters aus!"
+        )
     else:
         # PDF Erstellung starten
         pdf = ModernPDF()
@@ -366,6 +445,17 @@ if st.button(
         pdf.set_font("helvetica", size=10)
         pdf.set_text_color(51, 65, 85)
 
+        pdf.cell(45, 6, "Straße / Rubrik:", 0, 0)
+        pdf.set_font("helvetica", "B", 10)
+        pdf.cell(
+            0,
+            6,
+            strasse.encode("latin-1", "replace").decode("latin-1"),
+            0,
+            1,
+        )
+
+        pdf.set_font("helvetica", size=10)
         pdf.cell(45, 6, "Objektadresse:", 0, 0)
         pdf.set_font("helvetica", "B", 10)
         pdf.cell(
@@ -433,12 +523,7 @@ if st.button(
             pdf.set_font("helvetica", size=9)
             pdf.set_text_color(100, 100, 100)
             pdf.cell(
-                0,
-                5,
-                "Übersicht der beigefügten Zählerfotos:",
-                0,
-                1,
-                "L",
+                0, 5, "Übersicht der beigefügten Zählerfotos:", 0, 1, "L"
             )
             pdf.ln(2)
 
@@ -485,7 +570,7 @@ if st.button(
             pdf.set_y(current_y)
             pdf.ln(4)
 
-        # Permanenten Dateinamen im Archiv-Ordner erzeugen
+        # Dateinamen generieren
         sauberer_mieter = "".join(
             c for c in mieter if c.isalnum() or c in (" ", "_", "-")
         ).strip()
@@ -495,18 +580,19 @@ if st.button(
         # PDF lokal speichern
         pdf.output(file_path)
 
-        # In Session-Historie eintragen
-        st.session_state.archiv_historie.insert(
-            0,
-            {
-                "name": filename,
-                "pfad": file_path,
-                "zeit": datetime.now().strftime("%d.%m.%Y %H:%M"),
-            },
-        )
+        # In die persistente Historie eintragen & auf Festplatte schreiben
+        neuer_eintrag = {
+            "name": filename,
+            "pfad": file_path,
+            "strasse": strasse,
+            "mieter": mieter,
+            "zeit": datetime.now().strftime("%d.%m.%Y %H:%M"),
+        }
+        st.session_state.archiv_historie.insert(0, neuer_eintrag)
+        speichere_datenbank(st.session_state.archiv_historie)
 
         st.success(
-            "Protokoll wurde erstellt und im Online-Archiv (Seitenleiste) gespeichert!"
+            "Protokoll wurde erstellt und permanent im Archiv gespeichert!"
         )
         st.balloons()
         st.rerun()
