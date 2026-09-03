@@ -197,9 +197,29 @@ with st.container(border=True):
         })
         st.divider()
 
-# --- ABSCHNITT 3: UNTERSCHRIFTEN ---
+# --- ABSCHNITT 3: FOTODOKUMENTATION ---
 with st.container(border=True):
-    st.subheader("✍️ 3. Unterschriften")
+    st.subheader("📸 3. Fotodokumentation (Zählerfotos)")
+    uploaded_files = st.file_uploader(
+        "Fotos der Zähler hochladen (mehrere möglich)",
+        type=["png", "jpg", "jpeg"],
+        accept_multiple_files=True,
+    )
+
+    if uploaded_files:
+        st.write(f"Ausgewählte Fotos: **{len(uploaded_files)}**")
+        cols = st.columns(3)
+        for idx, uploaded_file in enumerate(uploaded_files):
+            with cols[idx % 3]:
+                st.image(
+                    uploaded_file,
+                    caption=f"Foto {idx+1}",
+                    use_container_width=True,
+                )
+
+# --- ABSCHNITT 4: UNTERSCHRIFTEN ---
+with st.container(border=True):
+    st.subheader("✍️ 4. Unterschriften")
     st.write(
         "Bitte unterschreiben Sie mit dem Finger oder einem Stift direkt im Feld."
     )
@@ -323,7 +343,72 @@ if st.button(
                 0,
                 1,
             )
-        pdf.ln(10)
+        pdf.ln(4)
+
+        # 3. Fotos ins PDF einbetten (falls vorhanden)
+        if uploaded_files:
+            pdf.chapter_title("3. Fotodokumentation")
+            pdf.set_font("helvetica", size=9)
+            pdf.set_text_color(100, 100, 100)
+            pdf.cell(
+                0,
+                5,
+                "Übersicht der beigefügten Zählerfotos:",
+                0,
+                1,
+                "L",
+            )
+            pdf.ln(2)
+
+            # Temporäre Bilddateien für das PDF erzeugen und im Raster anordnen
+            x_start = 14
+            y_start = pdf.get_y()
+            img_width = 56
+            img_height = 42
+            x_gap = 6
+            y_gap = 8
+
+            current_x = x_start
+            current_y = y_start
+
+            for idx, uploaded_file in enumerate(uploaded_files):
+                # Wenn wir am Seitenende ankommen, neue Seite hinzufügen
+                if current_y > 230:
+                    pdf.add_page()
+                    current_y = 20
+
+                # Bild temporär abspeichern
+                img = Image.open(uploaded_file)
+                temp_img_path = tempfile.NamedTemporaryFile(
+                    delete=False, suffix=".jpg"
+                ).name
+                img.convert("RGB").save(temp_img_path, "JPEG")
+
+                pdf.image(
+                    temp_img_path,
+                    x=current_x,
+                    y=current_y,
+                    w=img_width,
+                    h=img_height,
+                )
+
+                # Koordinaten für nächstes Bild berechnen (2 Bilder pro Zeile)
+                if (idx + 1) % 2 == 0:
+                    current_x = x_start
+                    current_y += img_height + y_gap
+                else:
+                    current_x += img_width + x_gap
+
+            # Cursor nach den Bildern positionieren
+            if len(uploaded_files) % 2 != 0:
+                current_y += img_height + y_gap
+            else:
+                current_y += (
+                    img_height + y_gap
+                )  # Falls genau voll, einen Puffer lassen
+
+            pdf.set_y(current_y)
+            pdf.ln(4)
 
         # PDF temporär speichern für Download
         temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
