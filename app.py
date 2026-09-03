@@ -1,643 +1,178 @@
-from datetime import datetime
-import json
-import os
-import tempfile
-from fpdf import FPDF
-from PIL import Image, ImageDraw
 import streamlit as st
-from streamlit_drawable_canvas import st_canvas
+import datetime
+import io
 
-# 1. Seitenkonfiguration
-st.set_page_config(
-    page_title="Zählerprotokoll KARE",
-    page_icon="⚡",
-    layout="centered",
-    initial_sidebar_state="expanded",
-)
+try:
+    from reportlab.lib.pagesizes import A4
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, KeepTogether
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib import colors
+    REPORTLAB_AVAILABLE = True
+except ImportError:
+    REPORTLAB_AVAILABLE = False
 
-# 2. Modernes CSS Styling einfügen (Kompaktere Buttons & Abstände im Menü)
-st.markdown(
-    """
-<style>
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    
-    .block-container {
-        padding-top: 1rem;
-        padding-bottom: 3rem;
-    }
-    
-    .stButton>button {
-        border-radius: 6px;
-        font-weight: 600;
-        height: 2.4rem;
-    }
-    
-    /* Kompaktere Buttons in der Sidebar */
-    [data-testid="stSidebar"] .stButton>button {
-        height: 2rem;
-        padding: 0px 8px;
-        font-size: 13px;
-    }
-</style>
-""",
-    unsafe_allow_html=True,
-)
+st.set_page_config(page_title="KARE-Immobilien Wohnungsabnahmeprotokoll", page_icon="🏠", layout="centered")
 
+st.markdown("<h2 style='text-align: center; color: #1e293b;'>KARE-Immobilien — Wohnungsabnahmeprotokoll</h2>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: #64748b;'>Talstr. 32, 07545 Gera | Tel.: 0365 / 800 49 37 | E-Mail: Info@KARE-Immobilien.de</p>", unsafe_allow_html=True)
+st.markdown("---")
 
-# Hilfsfunktion für abgerundete Ecken am Logo
-def add_rounded_corners(image_path, radius=20):
-    img = Image.open(image_path).convert("RGBA")
-    mask = Image.new("L", img.size, 0)
-    draw = ImageDraw.Draw(mask)
-    draw.rounded_rectangle([(0, 0), img.size], radius=radius, fill=255)
+st.subheader("1. Objektdaten & Vertragsparteien")
+col1, col2 = st.columns(2)
+with col1:
+    objekt_anschrift = st.text_input("Anschrift des Objekts", "Musterstraße 1, 07545 Gera")
+    vermieter = st.text_input("Vermieter / Vertreter", "KARE-Immobilien (Talstr. 32, Gera)")
+    datum = st.date_input("Datum der Abnahme", datetime.date.today())
+with col2:
+    mieter_neu = st.text_input("Neuer Mieter", "")
+    mieter_alt = st.text_input("Ausziehender Mieter", "")
 
-    rounded_img = Image.new("RGBA", img.size)
-    rounded_img.paste(img, (0, 0), mask=mask)
-    return rounded_img
+st.subheader("2. Zählerstände")
+meters = [
+    "Kaltwasserzähler",
+    "Warmwasserzähler",
+    "Heizungszähler - Wohnzimmer",
+    "Heizungszähler - Kinderzimmer",
+    "Heizungszähler - Flur",
+    "Heizungszähler - Bad",
+    "Heizungszähler - Küche"
+]
 
+meter_data = []
+for m in meters:
+    cols = st.columns([2, 1, 1.5])
+    with cols[0]:
+        st.write(f"**{m}**")
+    with cols[1]:
+        nr = st.text_input("Zählernr.", key=f"nr_{m}", label_visibility="collapsed")
+    with cols[2]:
+        val = st.text_input("Stand", "0.0", key=f"val_{m}", label_visibility="collapsed")
+    meter_data.append((m, nr, val))
 
-# 3. Klasse für das PDF-Layout mit grünem Rahmen
-class ModernPDF(FPDF):
+st.subheader("3. Schlüsselübergabe")
+keys = ["Haustürschlüssel", "Wohnungsschlüssel", "Kellerschlüssel", "Briefkastenschlüssel", "Garagenschlüssel"]
+key_data = []
+for k in keys:
+    cols = st.columns([3, 1])
+    with cols[0]:
+        st.write(k)
+    with cols[1]:
+        count = st.number_input("Stück", min_value=0, value=0, key=f"key_{k}", label_visibility="collapsed")
+    key_data.append((k, count))
 
-    def draw_page_border(self):
-        self.set_draw_color(46, 125, 50)
-        self.set_line_width(0.8)
-        self.rect(4, 4, 202, 289, style="D")
+st.subheader("4. Mängel, Zustand & Bemerkungen")
+maengel = st.text_area("Erfasste Mängel / Vereinbarungen", "Keine gravierenden Mängel festgestellt. Zustand ordnungsgemäß.")
 
-    def header(self):
-        self.draw_page_border()
+st.markdown("---")
 
-        if self.page_no() == 1:
-            logo_path = "kare_logo.png"
-            if os.path.exists(logo_path):
-                rounded_logo = add_rounded_corners(logo_path, radius=25)
-                temp_logo_path = tempfile.NamedTemporaryFile(
-                    delete=False, suffix=".png"
-                ).name
-                rounded_logo.save(temp_logo_path)
-
-                self.image(temp_logo_path, x=35, y=10, w=140)
-                self.ln(38)
-            else:
-                self.set_font("helvetica", "B", 10)
-                self.cell(0, 5, "KARE-Immobilien Zählerprotokoll", 0, 1, "L")
-                self.ln(5)
-        else:
-            self.ln(12)
-
-    def footer(self):
-        self.set_y(-15)
-        self.set_font("helvetica", "", 8)
-        self.set_text_color(120, 120, 120)
-        self.line(14, self.get_y() - 2, 196, self.get_y() - 2)
-        self.cell(
-            0,
-            8,
-            f"Erstellt am {datetime.now().strftime('%d.%m.%Y um %H:%M Uhr')}  -  Seite {self.page_no()}",
-            0,
-            0,
-            "C",
-        )
-
-    def chapter_title(self, title):
-        self.ln(4)
-        self.set_font("helvetica", "B", 11)
-        self.set_text_color(30, 41, 59)
-        self.cell(0, 7, title, 0, 1, "L")
-        self.set_draw_color(30, 41, 59)
-        self.set_line_width(0.6)
-        self.line(10, self.get_y(), 50, self.get_y())
-        self.ln(4)
-
-
-# --- DATENBANK & ARCHIV VERWALTUNG (PERSISTENT ÜBER JSON) ---
-ARCHIV_DIR = "archiv_protokolle"
-DB_FILE = "archiv_datenbank.json"
-STRASSEN_FILE = "strassen_datenbank.json"
-
-if not os.path.exists(ARCHIV_DIR):
-    os.makedirs(ARCHIV_DIR)
-
-
-def lade_json(datei, standard_wert):
-    if os.path.exists(datei):
+if st.button("Protokoll als PDF generieren", type="primary", use_container_width=True):
+    if not REPORTLAB_AVAILABLE:
+        st.error("ReportLab ist in der Umgebung nicht installiert.")
+    else:
         try:
-            with open(datei, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return standard_wert
-    return standard_wert
+            buffer = io.BytesIO()
+            # Kompaktere Margins (20mm), damit alles garantiert auf eine Seite passt
+            doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=25, leftMargin=25, topMargin=25, bottomMargin=25)
+            story = []
+            styles = getSampleStyleSheet()
 
+            title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=15, textColor=colors.HexColor("#1e293b"), spaceAfter=4)
+            subtitle_style = ParagraphStyle('SubTitleStyle', parent=styles['Normal'], fontSize=8.5, textColor=colors.HexColor("#64748b"), spaceAfter=10)
+            h2_style = ParagraphStyle('H2Style', parent=styles['Heading2'], fontSize=11, textColor=colors.HexColor("#0f172a"), spaceBefore=6, spaceAfter=4)
+            body_style = ParagraphStyle('BodyStyle', parent=styles['Normal'], fontSize=9.5, leading=13)
+            sig_style = ParagraphStyle('SigStyle', parent=styles['Normal'], fontSize=9, alignment=1) # 1 = Center
 
-def speichere_json(datei, daten):
-    with open(datei, "w", encoding="utf-8") as f:
-        json.dump(daten, f, ensure_ascii=False, indent=4)
+            story.append(Paragraph("KARE-Immobilien — Wohnungsabnahmeprotokoll", title_style))
+            story.append(Paragraph("Talstr. 32, 07545 Gera | Tel.: 0365 / 800 49 37 | E-Mail: Info@KARE-Immobilien.de", subtitle_style))
 
+            # 1. Objektdaten
+            story.append(Paragraph("1. Objektdaten & Vertragsparteien", h2_style))
+            data_p1 = [
+                [Paragraph("<b>Objektanschrift:</b>", body_style), Paragraph(objekt_anschrift, body_style)],
+                [Paragraph("<b>Vermieter:</b>", body_style), Paragraph(vermieter, body_style)],
+                [Paragraph("<b>Neuer Mieter:</b>", body_style), Paragraph(mieter_neu, body_style)],
+                [Paragraph("<b>Ausziehender Mieter:</b>", body_style), Paragraph(mieter_alt, body_style)],
+                [Paragraph("<b>Datum:</b>", body_style), Paragraph(datum.strftime("%d.%m.%Y"), body_style)],
+            ]
+            t1 = Table(data_p1, colWidths=[140, 420])
+            t1.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#f8fafc")),
+                ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor("#cbd5e1")),
+                ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor("#e2e8f0")),
+                ('TOPPADDING', (0,0), (-1,-1), 4),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+            ]))
+            story.append(t1)
+            story.append(Spacer(1, 6))
 
-# Session State initialisieren
-if "archiv_historie" not in st.session_state:
-    st.session_state.archiv_historie = lade_json(DB_FILE, [])
+            # 2. Zählerstände
+            story.append(Paragraph("2. Zählerstände", h2_style))
+            t2_data = [["Zählerart", "Zählernummer", "Zählerstand"]] + [[m, nr, val] for m, nr, val in meter_data]
+            t2 = Table(t2_data, colWidths=[210, 160, 190])
+            t2.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#1e293b")),
+                ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+                ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                ('BACKGROUND', (0,1), (-1,-1), colors.HexColor("#f8fafc")),
+                ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#cbd5e1")),
+                ('TOPPADDING', (0,1), (-1,-1), 3),
+                ('BOTTOMPADDING', (0,1), (-1,-1), 3),
+            ]))
+            story.append(t2)
+            story.append(Spacer(1, 6))
 
-if "strassen_liste" not in st.session_state:
-    standard_strassen = ["Talstraße 32"]
-    geladene_strassen = lade_json(STRASSEN_FILE, standard_strassen)
-    if "Talstraße 32" not in geladene_strassen:
-        geladene_strassen.insert(0, "Talstraße 32")
-    st.session_state.strassen_liste = geladene_strassen
+            # 3. Schlüssel
+            story.append(Paragraph("3. Schlüsselübergabe", h2_style))
+            t3_data = [["Schlüsselart", "Anzahl"]] + [[k, str(c)] for k, c in key_data]
+            t3 = Table(t3_data, colWidths=[360, 200])
+            t3.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#1e293b")),
+                ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+                ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                ('BACKGROUND', (0,1), (-1,-1), colors.HexColor("#f8fafc")),
+                ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#cbd5e1")),
+                ('TOPPADDING', (0,1), (-1,-1), 3),
+                ('BOTTOMPADDING', (0,1), (-1,-1), 3),
+            ]))
+            story.append(t3)
+            story.append(Spacer(1, 6))
 
-if "delete_target" not in st.session_state:
-    st.session_state.delete_target = None
+            # 4. Mängel
+            story.append(Paragraph("4. Mängel, Zustand & Bemerkungen", h2_style))
+            t4 = Table([[Paragraph(maengel, body_style)]], colWidths=[560])
+            t4.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#f8fafc")),
+                ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor("#cbd5e1")),
+                ('TOPPADDING', (0,0), (-1,-1), 5),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+            ]))
+            story.append(t4)
+            story.append(Spacer(1, 15))
 
+            # Unterschriften als KeepTogether Block, damit sie garantiert zusammenbleiben
+            sig_data = [
+                [Paragraph("___________________________________", sig_style), Paragraph("___________________________________", sig_style)],
+                [Paragraph("Unterschrift Vermietung / KARE", sig_style), Paragraph("Unterschrift Mieter", sig_style)]
+            ]
+            t_sig = Table(sig_data, colWidths=[280, 280])
+            t_sig.setStyle(TableStyle([
+                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                ('VALIGN', (0,0), (-1,-1), 'TOP'),
+                ('TOPPADDING', (0,0), (-1,-1), 2),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 2)
+            ]))
+            story.append(KeepTogether(t_sig))
 
-# --- SEITENLEISTE (HIERARCHIE: Jahr > Straße [aufklappbar] > Protokoll) ---
-with st.sidebar:
-    st.image(
-        "kare_logo.png" if os.path.exists("kare_logo.png") else "",
-        use_container_width=True,
-    )
-    st.title("📂 Archiv")
-    st.divider()
-
-    if not st.session_state.archiv_historie:
-        st.info("Noch keine Protokolle im Archiv vorhanden.")
-    else:
-        # 1. Nach Jahren gruppieren
-        jahre_dict = {}
-        for item in st.session_state.archiv_historie:
-            zeit_str = item.get("zeit", "")
-            jahr = (
-                zeit_str.split(".")[2][:4]
-                if len(zeit_str) >= 10
-                else str(datetime.now().year)
+            doc.build(story)
+            pdf_bytes = buffer.getvalue()
+            
+            st.success("PDF erfolgreich erstellt!")
+            st.download_button(
+                label="📥 PDF herunterladen",
+                data=pdf_bytes,
+                file_name="Wohnungsabnahmeprotokoll.pdf",
+                mime="application/pdf",
+                use_container_width=True
             )
-            if jahr not in jahre_dict:
-                jahre_dict[jahr] = []
-            jahre_dict[jahr].append(item)
-
-        for jahr in sorted(jahre_dict.keys(), reverse=True):
-            with st.expander(f"📅 Jahr {jahr} ({len(jahre_dict[jahr])})"):
-                # 2. Nach Straßen gruppieren
-                strassen_dict = {}
-                for item in jahre_dict[jahr]:
-                    strasse = item.get("strasse", "Unbekannte Straße")
-                    if strasse not in strassen_dict:
-                        strassen_dict[strasse] = []
-                    strassen_dict[strasse].append(item)
-
-                for strasse, eintraege_strasse in strassen_dict.items():
-                    # Jede Straße als eigener aufklappbarer Expander für maximale Platzersparnis
-                    with st.expander(
-                        f"📍 {strasse} ({len(eintraege_strasse)})"
-                    ):
-                        for item in eintraege_strasse:
-                            real_index = st.session_state.archiv_historie.index(
-                                item
-                            )
-                            etage_txt = (
-                                f" • {item.get('etage')}"
-                                if item.get("etage")
-                                else ""
-                            )
-
-                            st.markdown(
-                                f"**👤 {item['mieter']}**{etage_txt}<br><span"
-                                f" style='font-size:11px; color:gray;'>🕒"
-                                f" {item.get('zeit', '')}</span>",
-                                unsafe_allow_html=True,
-                            )
-
-                            if os.path.exists(item["pfad"]):
-                                col_dl, col_del = st.columns([1, 1])
-                                with col_dl:
-                                    with open(item["pfad"], "rb") as pdf_file:
-                                        st.download_button(
-                                            label="📥 PDF",
-                                            data=pdf_file,
-                                            file_name=item["name"],
-                                            mime="application/pdf",
-                                            key=f"dl_{real_index}_{item['name']}",
-                                        )
-                                with col_del:
-                                    if st.button(
-                                        "🗑️ Löschen",
-                                        key=f"btn_del_{real_index}_{item['name']}",
-                                    ):
-                                        st.session_state.delete_target = (
-                                            item["name"]
-                                        )
-
-                                if (
-                                    st.session_state.delete_target == item["name"]
-                                ):
-                                    st.warning("Wirklich löschen?")
-                                    col_y, col_n = st.columns(2)
-                                    with col_y:
-                                        if st.button(
-                                            "Ja",
-                                            key=f"yes_{real_index}_{item['name']}",
-                                        ):
-                                            if os.path.exists(item["pfad"]):
-                                                os.remove(item["pfad"])
-                                            st.session_state.archiv_historie.pop(
-                                                real_index
-                                            )
-                                            speichere_json(
-                                                DB_FILE,
-                                                st.session_state.archiv_historie,
-                                            )
-                                            st.session_state.delete_target = (
-                                                None
-                                            )
-                                            st.success("Gelöscht!")
-                                            st.rerun()
-                                    with col_n:
-                                        if st.button(
-                                            "Nein",
-                                            key=f"no_{real_index}_{item['name']}",
-                                        ):
-                                            st.session_state.delete_target = (
-                                                None
-                                            )
-                                            st.rerun()
-                            else:
-                                st.error("Datei weg.")
-                            st.divider()
-
-    # --- STRASSEN VERWALTEN ---
-    st.divider()
-    with st.expander("⚙️ Straßen verwalten"):
-        if not st.session_state.strassen_liste:
-            st.info("Keine Straßen.")
-        else:
-            for s_idx, s_name in enumerate(
-                list(st.session_state.strassen_liste)
-            ):
-                col_s1, col_s2 = st.columns([3, 1])
-                with col_s1:
-                    st.text(s_name)
-                with col_s2:
-                    if st.button("❌", key=f"del_str_{s_idx}"):
-                        if s_name == "Talstraße 32":
-                            st.warning("Hauptadresse geschützt.")
-                        else:
-                            st.session_state.strassen_liste.remove(s_name)
-                            speichere_json(
-                                STRASSEN_FILE, st.session_state.strassen_liste
-                            )
-                            st.success("Entfernt!")
-                            st.rerun()
-
-
-# --- HEADER BEREICH IN DER HAUPTSEITE (VOLE BREITE) ---
-logo_path = "kare_logo.png"
-if os.path.exists(logo_path):
-    st.image(logo_path, use_container_width=True)
-else:
-    st.warning("⚠️ Hinweis: Die Datei 'kare_logo.png' wurde nicht gefunden.")
-    st.markdown(
-        "<h1 style='text-align: center;'>⚡ KARE-Immobilien"
-        " Zählerprotokoll</h1>",
-        unsafe_allow_html=True,
-    )
-
-st.write("")
-
-# --- ABSCHNITT 1: STAMMDATEN & STRASSEN-RUBRIK ---
-with st.container(border=True):
-    st.subheader("👤 1. Stammdaten & Straßen-Rubrik")
-
-    dropdown_strassen = list(st.session_state.strassen_liste) + [
-        "➕ Neue Straße hinzufügen..."
-    ]
-
-    col_str1, col_str2 = st.columns(2)
-    with col_str1:
-        strassen_auswahl = st.selectbox(
-            "Straße (Rubrik-Auswahl)", dropdown_strassen
-        )
-        if strassen_auswahl == "➕ Neue Straße hinzufügen...":
-            neue_strasse_input = st.text_input(
-                "Geben Sie den Namen der neuen Straße ein:"
-            )
-            strasse = neue_strasse_input.strip()
-            if (
-                strasse
-                and strasse not in st.session_state.strassen_liste
-                and strasse != "➕ Neue Straße hinzufügen..."
-            ):
-                st.session_state.strassen_liste.append(strasse)
-                speichere_json(STRASSEN_FILE, st.session_state.strassen_liste)
-        else:
-            strasse = strassen_auswahl
-
-    with col_str2:
-        ort = st.text_input("Ort, PLZ", value="07545 Gera")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        wohnung = st.text_input(
-            "Genaue Adresse / Wohnung (z.B. Hausnr. 32, Whg 2)"
-        )
-        mieter = st.text_input("Name des Mieters")
-    with col2:
-        vermieter = st.text_input("Name des Vermieters", value="KARE-Immobilien")
-        etage = st.text_input("Etage (z.B. 2. Obergeschoss)")
-        datum = st.date_input(
-            "Datum der Ablesung", format="DD.MM.YYYY", key="ablesung_datum"
-        )
-
-# --- ABSCHNITT 2: ZÄHLERSTÄNDE ---
-with st.container(border=True):
-    st.subheader("⚡ 2. Zählerstände")
-
-    if "zaehler_liste" not in st.session_state:
-        st.session_state.zaehler_liste = [
-            {"typ": "Strom", "bezeichnung": "Strom Hauptzähler", "einheit": "kWh"},
-            {"typ": "Wasser", "bezeichnung": "Wasser Hauptzähler", "einheit": "m³"},
-            {"typ": "Heizung", "bezeichnung": "Heizung", "einheit": "Einheiten"},
-        ]
-
-    with st.expander("➕ Weiteren Zähler hinzufügen"):
-        z_typ = st.selectbox(
-            "Zählertyp",
-            ["Strom", "Wasser", "Heizung", "Gas", "Sonstige"],
-            key="select_z_typ",
-        )
-        z_bez = st.text_input("Bezeichnung (z.B. Küche, Bad)", key="neu_zaehler_bez")
-        z_einheit = st.text_input(
-            "Maßeinheit (z.B. kWh, m³, Liter)", value="kWh", key="neu_zaehler_einheit"
-        )
-        if st.button("Zähler hinzufügen", key="btn_add_z"):
-            if z_bez:
-                st.session_state.zaehler_liste.append({
-                    "typ": z_typ,
-                    "bezeichnung": z_bez,
-                    "einheit": z_einheit,
-                })
-                st.rerun()
-
-    zaehler_daten = []
-    for i, z in enumerate(st.session_state.zaehler_liste):
-        col_t, col_del = st.columns([5, 1])
-        with col_t:
-            st.write(f"**{z['typ']}** – {z['bezeichnung']}")
-        with col_del:
-            if st.button("❌", key=f"del_z_{i}", help="Zähler löschen"):
-                st.session_state.zaehler_liste.pop(i)
-                st.rerun()
-
-        col_z1, col_z2 = st.columns(2)
-        with col_z1:
-            z_nr = st.text_input(
-                "Zählernummer",
-                key=f"z_nr_{i}",
-                placeholder="Zählernummer eingeben...",
-            )
-        with col_z2:
-            z_wert = st.number_input(
-                f"Zählerstand ({z['einheit']})",
-                value=0.000,
-                format="%.3f",
-                step=0.001,
-                key=f"z_wert_{i}",
-            )
-
-        zaehler_daten.append({
-            "typ": z["typ"],
-            "bezeichnung": z["bezeichnung"],
-            "nummer": z_nr,
-            "stand": z_wert,
-            "einheit": z["einheit"],
-        })
-        st.divider()
-
-# --- ABSCHNITT 3: FOTODOKUMENTATION ---
-with st.container(border=True):
-    st.subheader("📸 3. Fotodokumentation (Zählerfotos)")
-    uploaded_files = st.file_uploader(
-        "Fotos der Zähler hochladen (mehrere möglich)",
-        type=["png", "jpg", "jpeg"],
-        accept_multiple_files=True,
-    )
-
-    if uploaded_files:
-        st.write(f"Ausgewählte Fotos: **{len(uploaded_files)}**")
-        cols = st.columns(3)
-        for idx, uploaded_file in enumerate(uploaded_files):
-            with cols[idx % 3]:
-                st.image(
-                    uploaded_file,
-                    caption=f"Foto {idx+1}",
-                    use_container_width=True,
-                )
-
-# --- ABSCHNITT 4: UNTERSCHRIFTEN ---
-with st.container(border=True):
-    st.subheader("✍️ 4. Unterschriften")
-    st.write(
-        "Bitte unterschreiben Sie mit dem Finger oder einem Stift direkt im Feld."
-    )
-
-    col_sig1, col_sig2 = st.columns(2)
-
-    with col_sig1:
-        st.write("**Vermieter (KARE)**")
-        canvas_vermieter = st_canvas(
-            fill_color="rgba(255, 255, 255, 0)",
-            stroke_width=3,
-            stroke_color="#000000",
-            background_color="#f0f2f6",
-            height=150,
-            width=280,
-            drawing_mode="freedraw",
-            key="canvas_vermieter",
-        )
-
-    with col_sig2:
-        st.write("**Mieter**")
-        canvas_mieter = st_canvas(
-            fill_color="rgba(255, 255, 255, 0)",
-            stroke_width=3,
-            stroke_color="#000000",
-            background_color="#f0f2f6",
-            height=150,
-            width=280,
-            drawing_mode="freedraw",
-            key="canvas_mieter",
-        )
-
-st.write("")
-
-# --- SPEICHERN BUTTON & PDF GENERIERUNG ---
-if st.button(
-    "📄 Protokoll generieren & permanent speichern",
-    type="primary",
-    use_container_width=True,
-):
-    if not wohnung or not mieter or not strasse:
-        st.error(
-            "Bitte fülle mindestens die Straße, die Objektadresse und den Namen"
-            " des Mieters aus!"
-        )
-    else:
-        pdf = ModernPDF()
-        pdf.add_page()
-        pdf.set_font("helvetica", size=10)
-
-        pdf.set_font("helvetica", "B", 15)
-        pdf.set_text_color(15, 23, 42)
-        pdf.cell(0, 8, "ZÄHLERPROTOKOLL", 0, 1, "C")
-        pdf.ln(5)
-
-        pdf.chapter_title("1. Stammdaten")
-        pdf.set_font("helvetica", size=10)
-        pdf.set_text_color(51, 65, 85)
-
-        pdf.cell(45, 6, "Straße / Rubrik:", 0, 0)
-        pdf.set_font("helvetica", "B", 10)
-        pdf.cell(
-            0,
-            6,
-            strasse.encode("latin-1", "replace").decode("latin-1"),
-            0,
-            1,
-        )
-
-        pdf.set_font("helvetica", size=10)
-        pdf.cell(45, 6, "Objektadresse:", 0, 0)
-        pdf.set_font("helvetica", "B", 10)
-        pdf.cell(
-            0,
-            6,
-            f"{wohnung.encode('latin-1', 'replace').decode('latin-1')}, {ort.encode('latin-1', 'replace').decode('latin-1')}",
-            0,
-            1,
-        )
-
-        pdf.set_font("helvetica", size=10)
-        pdf.cell(45, 6, "Etage:", 0, 0)
-        pdf.set_font("helvetica", "B", 10)
-        pdf.cell(
-            0,
-            6,
-            etage.encode("latin-1", "replace").decode("latin-1")
-            if etage
-            else "-",
-            0,
-            1,
-        )
-
-        pdf.set_font("helvetica", size=10)
-        pdf.cell(45, 6, "Mieter:", 0, 0)
-        pdf.set_font("helvetica", "B", 10)
-        pdf.cell(0, 6, mieter.encode("latin-1", "replace").decode("latin-1"), 0, 1)
-
-        pdf.set_font("helvetica", size=10)
-        pdf.cell(45, 6, "Vermieter:", 0, 0)
-        pdf.set_font("helvetica", "B", 10)
-        pdf.cell(
-            0, 6, vermieter.encode("latin-1", "replace").decode("latin-1"), 0, 1
-        )
-
-        pdf.set_font("helvetica", size=10)
-        pdf.cell(45, 6, "Datum der Ablesung:", 0, 0)
-        pdf.set_font("helvetica", "B", 10)
-        pdf.cell(0, 6, datum.strftime("%d.%m.%Y"), 0, 1)
-        pdf.ln(4)
-
-        pdf.chapter_title("2. Zählerstände")
-        pdf.set_font("helvetica", size=10)
-        for z in zaehler_daten:
-            pdf.set_font("helvetica", "B", 10)
-            pdf.cell(30, 6, f"{z['typ']}:", 0, 0)
-            pdf.set_font("helvetica", size=10)
-            pdf.cell(70, 6, f"{z['bezeichnung']} (Nr: {z['nummer']})", 0, 0)
-            pdf.set_font("helvetica", "B", 10)
-            pdf.cell(
-                0,
-                6,
-                f"Stand: {z['stand']:.3f} {z['einheit']}"
-                .encode("latin-1", "replace")
-                .decode("latin-1"),
-                0,
-                1,
-            )
-        pdf.ln(4)
-
-        if uploaded_files:
-            pdf.chapter_title("3. Fotodokumentation")
-            pdf.set_font("helvetica", size=9)
-            pdf.set_text_color(100, 100, 100)
-            pdf.cell(
-                0, 5, "Übersicht der beigefügten Zählerfotos:", 0, 1, "L"
-            )
-            pdf.ln(2)
-
-            x_start = 14
-            y_start = pdf.get_y()
-            img_width = 56
-            img_height = 42
-            x_gap = 6
-            y_gap = 8
-
-            current_x = x_start
-            current_y = y_start
-
-            for idx, uploaded_file in enumerate(uploaded_files):
-                if current_y > 230:
-                    pdf.add_page()
-                    current_y = 20
-
-                img = Image.open(uploaded_file)
-                temp_img_path = tempfile.NamedTemporaryFile(
-                    delete=False, suffix=".jpg"
-                ).name
-                img.convert("RGB").save(temp_img_path, "JPEG")
-
-                pdf.image(
-                    temp_img_path,
-                    x=current_x,
-                    y=current_y,
-                    w=img_width,
-                    h=img_height,
-                )
-
-                if (idx + 1) % 2 == 0:
-                    current_x = x_start
-                    current_y += img_height + y_gap
-                else:
-                    current_x += img_width + x_gap
-
-            if len(uploaded_files) % 2 != 0:
-                current_y += img_height + y_gap
-            else:
-                current_y += img_height + y_gap
-
-            pdf.set_y(current_y)
-            pdf.ln(4)
-
-        sauberer_mieter = "".join(
-            c for c in mieter if c.isalnum() or c in (" ", "_", "-")
-        ).strip()
-        filename = f"Zaehlerprotokoll_{sauberer_mieter}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-        file_path = os.path.join(ARCHIV_DIR, filename)
-
-        pdf.output(file_path)
-
-        neuer_eintrag = {
-            "name": filename,
-            "pfad": file_path,
-            "strasse": strasse,
-            "etage": etage if etage else "Keine Etage",
-            "mieter": mieter,
-            "zeit": datetime.now().strftime("%d.%m.%Y %H:%M"),
-        }
-        st.session_state.archiv_historie.insert(0, neuer_eintrag)
-        speichere_json(DB_FILE, st.session_state.archiv_historie)
-
-        st.success(
-            "Protokoll wurde erstellt und permanent im Archiv gespeichert!"
-        )
-        st.balloons()
-        st.rerun()
+        except Exception as e:
+            st.error(f"Fehler bei der PDF-Generierung: {e}")
