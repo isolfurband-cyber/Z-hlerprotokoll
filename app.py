@@ -105,52 +105,59 @@ class ModernPDF(FPDF):
 # --- DATENBANK & ARCHIV VERWALTUNG (PERSISTENT ÜBER JSON) ---
 ARCHIV_DIR = "archiv_protokolle"
 DB_FILE = "archiv_datenbank.json"
+STRASSEN_FILE = "strassen_datenbank.json"
 
 if not os.path.exists(ARCHIV_DIR):
     os.makedirs(ARCHIV_DIR)
 
 
-def lade_datenbank():
-    if os.path.exists(DB_FILE):
+def lade_json(datei, standard_wert):
+    if os.path.exists(datei):
         try:
-            with open(DB_FILE, "r", encoding="utf-8") as f:
+            with open(datei, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
-            return []
-    return []
+            return standard_wert
+    return standard_wert
 
 
-def speichere_datenbank(daten):
-    with open(DB_FILE, "w", encoding="utf-8") as f:
+def speichere_json(datei, daten):
+    with open(datei, "w", encoding="utf-8") as f:
         json.dump(daten, f, ensure_ascii=False, indent=4)
 
 
 # Session State initialisieren
 if "archiv_historie" not in st.session_state:
-    st.session_state.archiv_historie = lade_datenbank()
+    st.session_state.archiv_historie = lade_json(DB_FILE, [])
+
+if "strassen_liste" not in st.session_state:
+    # Standard-Straßen + bereits gespeicherte laden
+    standard_strassen = ["Talstraße 32"]
+    geladene_strassen = lade_json(STRASSEN_FILE, standard_strassen)
+    # Sicherstellen, dass Talstraße immer da ist
+    if "Talstraße 32" not in geladene_strassen:
+        geladene_strassen.insert(0, "Talstraße 32")
+    st.session_state.strassen_liste = geladene_strassen
 
 if "delete_target" not in st.session_state:
     st.session_state.delete_target = None
 
 
-# --- SEITENLEISTE (GEORDNET NACH JAHREN UND STRASSEN) ---
+# --- SEITENLEISTE (HIERARCHIE: Jahr > Straße > Etage) ---
 with st.sidebar:
     st.image(
         "kare_logo.png" if os.path.exists("kare_logo.png") else "", width=150
     )
-    st.title("📂 Archiv nach Jahr & Straße")
-    st.write(
-        "Hier bleiben alle Protokolle dauerhaft gespeichert – sortiert nach Jahren und Straßen."
-    )
+    st.title("📂 Archiv-Browser")
+    st.write("Struktur: **Jahr ➔ Straße ➔ Etage**")
     st.divider()
 
     if not st.session_state.archiv_historie:
         st.info("Noch keine Protokolle im Archiv vorhanden.")
     else:
-        # Nach Jahren gruppieren (absteigend, z.B. 2026, 2025...)
+        # 1. Nach Jahren gruppieren
         jahre_dict = {}
         for item in st.session_state.archiv_historie:
-            # Jahr aus dem Erstellungsdatum extrahieren oder Fallback auf aktuelles Jahr
             zeit_str = item.get("zeit", "")
             jahr = (
                 zeit_str.split(".")[2][:4]
@@ -163,7 +170,7 @@ with st.sidebar:
 
         for jahr in sorted(jahre_dict.keys(), reverse=True):
             with st.expander(f"📅 Jahr {jahr} ({len(jahre_dict[jahr])})"):
-                # Innerhalb des Jahres nach Straßen gruppieren
+                # 2. Nach Straßen gruppieren
                 strassen_dict = {}
                 for item in jahre_dict[jahr]:
                     strasse = item.get("strasse", "Unbekannte Straße")
@@ -171,69 +178,124 @@ with st.sidebar:
                         strassen_dict[strasse] = []
                     strassen_dict[strasse].append(item)
 
-                for strasse, eintraege in strassen_dict.items():
+                for strasse, eintraege_strasse in strassen_dict.items():
                     st.markdown(f"📍 **{strasse}**")
-                    for item in eintraege:
-                        # Original-Index in der Hauptliste finden
-                        real_index = st.session_state.archiv_historie.index(
-                            item
+
+                    # 3. Nach Etagen gruppieren
+                    etagen_dict = {}
+                    for item in eintraege_strasse:
+                        etage = (
+                            item.get("etage", "Keine Etage angegeben")
+                            if item.get("etage")
+                            else "Keine Etage angegeben"
                         )
+                        if etage not in etagen_dict:
+                            etagen_dict[etage] = []
+                        etagen_dict[etage].append(item)
 
-                        st.caption(
-                            f"👤 {item['mieter']} ({item.get('zeit', '')})"
-                        )
+                    for etage, eintraege_etage in etagen_dict.items():
+                        st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;🏢 *{etage}*")
+                        for item in eintraege_etage:
+                            real_index = st.session_state.archiv_historie.index(
+                                item
+                            )
+                            st.caption(
+                                f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;👤 {item['mieter']} ({item.get('zeit', '')})"
+                            )
 
-                        if os.path.exists(item["pfad"]):
-                            with open(item["pfad"], "rb") as pdf_file:
-                                st.download_button(
-                                    label="📥 PDF laden",
-                                    data=pdf_file,
-                                    file_name=item["name"],
-                                    mime="application/pdf",
-                                    key=f"dl_{real_index}_{item['name']}",
-                                )
-
-                            # Löschen-Button
-                            if st.button(
-                                "🗑️ Löschen",
-                                key=f"btn_del_{real_index}_{item['name']}",
-                            ):
-                                st.session_state.delete_target = item["name"]
-
-                            # Sicherheitsabfrage
-                            if (
-                                st.session_state.delete_target == item["name"]
-                            ):
-                                st.warning(
-                                    "Wirklich unwiderruflich löschen?"
-                                )
-                                col_y, col_n = st.columns(2)
-                                with col_y:
-                                    if st.button(
-                                        "Ja",
-                                        key=f"yes_{real_index}_{item['name']}",
-                                    ):
-                                        if os.path.exists(item["pfad"]):
-                                            os.remove(item["pfad"])
-                                        st.session_state.archiv_historie.pop(
-                                            real_index
+                            if os.path.exists(item["pfad"]):
+                                col_dl, col_del = st.columns([1, 1])
+                                with col_dl:
+                                    with open(item["pfad"], "rb") as pdf_file:
+                                        st.download_button(
+                                            label="📥",
+                                            data=pdf_file,
+                                            file_name=item["name"],
+                                            mime="application/pdf",
+                                            key=f"dl_{real_index}_{item['name']}",
+                                            help="PDF herunterladen",
                                         )
-                                        speichere_datenbank(
-                                            st.session_state.archiv_historie
-                                        )
-                                        st.session_state.delete_target = None
-                                        st.success("Gelöscht!")
-                                        st.rerun()
-                                with col_n:
+                                with col_del:
                                     if st.button(
-                                        "Nein",
-                                        key=f"no_{real_index}_{item['name']}",
+                                        "🗑️",
+                                        key=f"btn_del_{real_index}_{item['name']}",
+                                        help="Protokoll löschen",
                                     ):
-                                        st.session_state.delete_target = None
-                                        st.rerun()
+                                        st.session_state.delete_target = (
+                                            item["name"]
+                                        )
+
+                                # Sicherheitsabfrage zum Löschen
+                                if (
+                                    st.session_state.delete_target == item["name"]
+                                ):
+                                    st.warning("Wirklich löschen?")
+                                    col_y, col_n = st.columns(2)
+                                    with col_y:
+                                        if st.button(
+                                            "Ja",
+                                            key=f"yes_{real_index}_{item['name']}",
+                                        ):
+                                            if os.path.exists(item["pfad"]):
+                                                os.remove(item["pfad"])
+                                            st.session_state.archiv_historie.pop(
+                                                real_index
+                                            )
+                                            speichere_json(
+                                                DB_FILE,
+                                                st.session_state.archiv_historie,
+                                            )
+                                            st.session_state.delete_target = (
+                                                None
+                                            )
+                                            st.success("Gelöscht!")
+                                            st.rerun()
+                                    with col_n:
+                                        if st.button(
+                                            "Nein",
+                                            key=f"no_{real_index}_{item['name']}",
+                                        ):
+                                            st.session_state.delete_target = (
+                                                None
+                                            )
+                                            st.rerun()
+                            else:
+                                st.error("Datei nicht gefunden.")
+                    st.markdown("---")
+
+    # --- STRASSEN VERWALTEN (VORSCHLÄGE LÖSCHEN) ---
+    st.divider()
+    with st.expander("⚙️ Straßen verwalten"):
+        st.write(
+            "Hier kannst du gespeicherte Straßen-Vorschläge aus der Liste"
+            " entfernen:"
+        )
+        if not st.session_state.strassen_liste:
+            st.info("Keine Straßen gespeichert.")
+        else:
+            for s_idx, s_name in enumerate(
+                list(st.session_state.strassen_liste)
+            ):
+                col_s1, col_s2 = st.columns([3, 1])
+                with col_s1:
+                    st.text(s_name)
+                with col_s2:
+                    if st.button(
+                        "❌",
+                        key=f"del_str_{s_idx}",
+                        help=f"Straße '{s_name}' aus Vorschlägen löschen",
+                    ):
+                        if s_name == "Talstraße 32":
+                            st.warning(
+                                "Hauptadresse kann nicht entfernt werden."
+                            )
                         else:
-                            st.error("PDF-Datei nicht gefunden.")
-                        st.markdown("---")
+                            st.session_state.strassen_liste.remove(s_name)
+                            speichere_json(
+                                STRASSEN_FILE, st.session_state.strassen_liste
+                            )
+                            st.success(f"'{s_name}' entfernt!")
+                            st.rerun()
 
 
 # --- HEADER BEREICH IN DER APP ---
@@ -254,28 +316,27 @@ st.write("")
 with st.container(border=True):
     st.subheader("👤 1. Stammdaten & Straßen-Rubrik")
 
-    # Bestehende Straßen aus dem Archiv extrahieren für das Dropdown
-    vorhandene_strassen = sorted(
-        list(
-            set(
-                item.get("strasse", "Talstraße 32")
-                for item in st.session_state.archiv_historie
-            )
-        )
-    )
-    if "Talstraße 32" not in vorhandene_strassen:
-        vorhandene_strassen.insert(0, "Talstraße 32")
-    vorhandene_strassen.append("➕ Neue Straße eingeben...")
+    dropdown_strassen = list(st.session_state.strassen_liste) + [
+        "➕ Neue Straße hinzufügen..."
+    ]
 
     col_str1, col_str2 = st.columns(2)
     with col_str1:
         strassen_auswahl = st.selectbox(
-            "Straße (Rubrik-Auswahl)", vorhandene_strassen
+            "Straße (Rubrik-Auswahl)", dropdown_strassen
         )
-        if strassen_auswahl == "➕ Neue Straße eingeben...":
-            strasse = st.text_input(
+        if strassen_auswahl == "➕ Neue Straße hinzufügen...":
+            neue_strasse_input = st.text_input(
                 "Geben Sie den Namen der neuen Straße ein:"
             )
+            strasse = neue_strasse_input.strip()
+            if (
+                strasse
+                and strasse not in st.session_state.strassen_liste
+                and strasse != "➕ Neue Straße hinzufügen..."
+            ):
+                st.session_state.strassen_liste.append(strasse)
+                speichere_json(STRASSEN_FILE, st.session_state.strassen_liste)
         else:
             strasse = strassen_auswahl
 
@@ -285,7 +346,7 @@ with st.container(border=True):
     col1, col2 = st.columns(2)
     with col1:
         wohnung = st.text_input(
-            "Genaue Adresse / Wohnung (z.B. Talstr. 32, Whg 2)"
+            "Genaue Adresse / Wohnung (z.B. Hausnr. 32, Whg 2)"
         )
         mieter = st.text_input("Name des Mieters")
     with col2:
@@ -585,11 +646,12 @@ if st.button(
             "name": filename,
             "pfad": file_path,
             "strasse": strasse,
+            "etage": etage if etage else "Keine Etage",
             "mieter": mieter,
             "zeit": datetime.now().strftime("%d.%m.%Y %H:%M"),
         }
         st.session_state.archiv_historie.insert(0, neuer_eintrag)
-        speichere_datenbank(st.session_state.archiv_historie)
+        speichere_json(DB_FILE, st.session_state.archiv_historie)
 
         st.success(
             "Protokoll wurde erstellt und permanent im Archiv gespeichert!"
