@@ -1,12 +1,6 @@
-# -*- coding: utf-8 -*-
-"""
-KARE-Immobilien Wohnungsabnahmeprotokoll Generator
-Vollständiger Quellcode für die Tkinter-basierte Desktop-Anwendung.
-"""
-
-import tkinter as tk
-from tkinter import messagebox, filedialog
+import streamlit as st
 import datetime
+import io
 
 try:
     from reportlab.lib.pagesizes import A4
@@ -17,246 +11,89 @@ try:
 except ImportError:
     REPORTLAB_AVAILABLE = False
 
+st.set_page_config(page_title="KARE-Immobilien Wohnungsabnahmeprotokoll", page_icon="🏠", layout="centered")
 
-class WohnungsabnahmeApp:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("KARE-Immobilien - Wohnungsabnahmeprotokoll")
-        self.root.geometry("850x750")
-        self.root.config(bg="#f4f6f9")
+st.markdown("<h2 style='text-align: center; color: #1e293b;'>KARE-Immobilien — Wohnungsabnahmeprotokoll</h2>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: #64748b;'>Talstr. 32, 07545 Gera | Tel.: 0365 / 800 49 37 | E-Mail: Info@KARE-Immobilien.de</p>", unsafe_allow_html=True)
+st.markdown("---")
 
-        # Header Frame
-        header_frame = tk.Frame(root, bg="#1e293b", pady=15)
-        header_frame.pack(fill=tk.X)
+st.subheader("1. Objektdaten & Vertragsparteien")
+col1, col2 = st.columns(2)
+with col1:
+    objekt_anschrift = st.text_input("Anschrift des Objekts", "Musterstraße 1, 07545 Gera")
+    vermieter = st.text_input("Vermieter / Vertreter", "KARE-Immobilien (Talstr. 32, Gera)")
+    datum = st.date_input("Datum der Abnahme", datetime.date.today())
+with col2:
+    mieter_neu = st.text_input("Neuer Mieter", "")
+    mieter_alt = st.text_input("Ausziehender Mieter", "")
 
-        title_label = tk.Label(
-            header_frame, 
-            text="KARE-Immobilien — Wohnungsabnahmeprotokoll", 
-            font=("Arial", 16, "bold"), 
-            fg="white", 
-            bg="#1e293b"
-        )
-        title_label.pack()
+st.subheader("2. Zählerstände")
+meters = [
+    "Kaltwasserzähler",
+    "Warmwasserzähler",
+    "Heizungszähler - Wohnzimmer",
+    "Heizungszähler - Kinderzimmer",
+    "Heizungszähler - Flur",
+    "Heizungszähler - Bad",
+    "Heizungszähler - Küche"
+]
 
-        sub_label = tk.Label(
-            header_frame, 
-            text="Talstr. 32, 07545 Gera | Tel.: 0365 / 800 49 37 | E-Mail: Info@KARE-Immobilien.de", 
-            font=("Arial", 9), 
-            fg="#94a3b8", 
-            bg="#1e293b"
-        )
-        sub_label.pack(pady=2)
+meter_data = []
+for m in meters:
+    cols = st.columns([2, 1, 1.5])
+    with cols[0]:
+        st.write(f"**{m}**")
+    with cols[1]:
+        nr = st.text_input("Zählernr.", key=f"nr_{m}", label_visibility="collapsed")
+    with cols[2]:
+        val = st.text_input("Stand", "0.0", key=f"val_{m}", label_visibility="collapsed")
+    meter_data.append((m, nr, val))
 
-        # Main Scrollable / Form Area using Canvas
-        container = tk.Frame(root, bg="#f4f6f9")
-        container.pack(fill=tk.BOTH, expand=True, padx=20, pady=15)
+st.subheader("3. Schlüsselübergabe")
+keys = ["Haustürschlüssel", "Wohnungsschlüssel", "Kellerschlüssel", "Briefkastenschlüssel", "Garagenschlüssel"]
+key_data = []
+for k in keys:
+    cols = st.columns([3, 1])
+    with cols[0]:
+        st.write(k)
+    with cols[1]:
+        count = st.number_input("Stück", min_value=0, value=0, key=f"key_{k}", label_visibility="collapsed")
+    key_data.append((k, count))
 
-        canvas = tk.Canvas(container, bg="#f4f6f9", highlightthickness=0)
-        scrollbar = tk.Scrollbar(container, orient="vertical", command=canvas.yview)
-        self.scrollable_frame = tk.Frame(canvas, bg="#f4f6f9")
+st.subheader("4. Mängel, Zustand & Bemerkungen")
+maengel = st.text_area("Erfasste Mängel / Vereinbarungen", "Keine gravierenden Mängel festgestellt. Zustand ordnungsgemäß.")
 
-        self.scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
+st.markdown("---")
 
-        canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        canvas.pack(side="left", fill=tk.BOTH, expand=True)
-        scrollbar.pack(side="right", fill=tk.Y)
-
-        self.create_form_fields()
-
-        # Footer Button Frame
-        btn_frame = tk.Frame(root, bg="#f4f6f9", pady=10)
-        btn_frame.pack(fill=tk.X, padx=20)
-
-        generate_btn = tk.Button(
-            btn_frame, 
-            text="Protokoll als PDF erstellen", 
-            font=("Arial", 11, "bold"), 
-            bg="#0284c7", 
-            fg="white", 
-            padx=15, 
-            pady=8,
-            command=self.generate_pdf
-        )
-        generate_btn.pack(side=tk.RIGHT)
-
-        exit_btn = tk.Button(
-            btn_frame, 
-            text="Schließen", 
-            font=("Arial", 11), 
-            bg="#64748b", 
-            fg="white", 
-            padx=15, 
-            pady=8,
-            command=root.quit
-        )
-        exit_btn.pack(side=tk.LEFT)
-
-    def create_form_fields(self):
-        # 1. Objektdaten & Parteien
-        self.add_section_header("1. Objektdaten & Vertragsparteien")
-        
-        self.entries = {}
-        
-        fields_part1 = [
-            ("Anschrift des Objekts:", "objekt_anschrift", "Musterstraße 1, 07545 Gera"),
-            ("Vermieter / Vertreter:", "vermieter", "KARE-Immobilien (Talstr. 32, Gera)"),
-            ("Mieter (neu):", "mieter_neu", ""),
-            ("Mieter (ausziehend / alt):", "mieter_alt", ""),
-            ("Datum der Abnahme:", "datum", datetime.date.today().strftime("%d.%m.%Y"))
-        ]
-
-        for label_text, key, default in fields_part1:
-            row = tk.Frame(self.scrollable_frame, bg="#f4f6f9")
-            row.pack(fill=tk.X, pady=4)
-            lbl = tk.Label(row, text=label_text, width=25, anchor="w", font=("Arial", 10), bg="#f4f6f9")
-            lbl.pack(side=tk.LEFT)
-            ent = tk.Entry(row, font=("Arial", 10), width=45)
-            ent.insert(0, default)
-            ent.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
-            self.entries[key] = ent
-
-        # 2. Zählerstände
-        self.add_section_header("2. Zählerstände")
-        
-        self.meter_entries = {}
-        meters = [
-            ("Kaltwasserzähler", "Zählerstand (m³)"),
-            ("Warmwasserzähler", "Zählerstand (m³)"),
-            ("Heizungszähler - Wohnzimmer", "Zählerstand / Ablesewert"),
-            ("Heizungszähler - Kinderzimmer", "Zählerstand / Ablesewert"),
-            ("Heizungszähler - Flur", "Zählerstand / Ablesewert"),
-            ("Heizungszähler - Bad", "Zählerstand / Ablesewert"),
-            ("Heizungszähler - Küche", "Zählerstand / Ablesewert")
-        ]
-
-        for meter_name, unit_label in meters:
-            row = tk.Frame(self.scrollable_frame, bg="#f4f6f9")
-            row.pack(fill=tk.X, pady=3)
-            lbl = tk.Label(row, text=meter_name, width=28, anchor="w", font=("Arial", 10), bg="#f4f6f9")
-            lbl.pack(side=tk.LEFT)
-            
-            ent_nr = tk.Entry(row, font=("Arial", 10), width=15)
-            ent_nr.insert(0, "Zählernr.")
-            ent_nr.pack(side=tk.LEFT, padx=5)
-
-            ent_val = tk.Entry(row, font=("Arial", 10), width=20)
-            ent_val.insert(0, "0.0")
-            ent_val.pack(side=tk.LEFT, padx=5)
-            
-            self.meter_entries[meter_name] = (ent_nr, ent_val)
-
-        # 3. Schlüsselübergabe
-        self.add_section_header("3. Schlüsselübergabe")
-        self.key_entries = {}
-        key_types = ["Haustürschlüssel", "Wohnungsschlüssel", "Kellerschlüssel", "Briefkastenschlüssel", "Garagenschlüssel"]
-        
-        for kt in key_types:
-            row = tk.Frame(self.scrollable_frame, bg="#f4f6f9")
-            row.pack(fill=tk.X, pady=3)
-            lbl = tk.Label(row, text=kt, width=28, anchor="w", font=("Arial", 10), bg="#f4f6f9")
-            lbl.pack(side=tk.LEFT)
-            
-            ent_count = tk.Entry(row, font=("Arial", 10), width=10)
-            ent_count.insert(0, "0")
-            ent_count.pack(side=tk.LEFT, padx=5)
-            tk.Label(row, text="Stück", font=("Arial", 10), bg="#f4f6f9").pack(side=tk.LEFT)
-
-            self.key_entries[kt] = ent_count
-
-        # 4. Mängel / Bemerkungen
-        self.add_section_header("4. Mängel, Zustand & Bemerkungen")
-        
-        row = tk.Frame(self.scrollable_frame, bg="#f4f6f9")
-        row.pack(fill=tk.X, pady=4)
-        tk.Label(row, text="Erfasste Mängel / Vereinbarungen:", font=("Arial", 10), bg="#f4f6f9", anchor="w").pack(anchor="w")
-        
-        self.text_maengel = tk.Text(self.scrollable_frame, font=("Arial", 10), height=6, width=70)
-        self.text_maengel.pack(fill=tk.X, pady=5)
-        self.text_maengel.insert(tk.END, "Keine gravierenden Mängel festgestellt. Zustand ordnungsgemäß.")
-
-    def add_section_header(self, title):
-        lbl = tk.Label(
-            self.scrollable_frame, 
-            text=title, 
-            font=("Arial", 11, "bold"), 
-            fg="#0f172a", 
-            bg="#e2e8f0",
-            anchor="w",
-            padx=8,
-            pady=4
-        )
-        lbl.pack(fill=tk.X, pady=(15, 5))
-
-    def generate_pdf(self):
-        if not REPORTLAB_AVAILABLE:
-            messagebox.showerror(
-                "Fehler", 
-                "Die ReportLab-Bibliothek ist nicht installiert.\nBitte installieren Sie diese via 'pip install reportlab'."
-            )
-            return
-
-        file_path = filedialog.asksaveasfilename(
-            defaultextension=".pdf",
-            filetypes=[("PDF Dateien", "*.pdf")],
-            initialfile="Wohnungsabnahmeprotokoll.pdf"
-        )
-        if not file_path:
-            return
-
+if st.button("Protokoll als PDF generieren", type="primary", use_container_width=True):
+    if not REPORTLAB_AVAILABLE:
+        st.error("ReportLab ist in der Umgebung nicht installiert.")
+    else:
         try:
-            doc = SimpleDocTemplate(file_path, pagesize=A4, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+            buffer = io.BytesIO()
+            doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
             story = []
             styles = getSampleStyleSheet()
 
-            title_style = ParagraphStyle(
-                'TitleStyle',
-                parent=styles['Heading1'],
-                fontSize=16,
-                textColor=colors.HexColor("#1e293b"),
-                spaceAfter=6
-            )
-
-            subtitle_style = ParagraphStyle(
-                'SubTitleStyle',
-                parent=styles['Normal'],
-                fontSize=9,
-                textColor=colors.HexColor("#64748b"),
-                spaceAfter=15
-            )
-
-            h2_style = ParagraphStyle(
-                'H2Style',
-                parent=styles['Heading2'],
-                fontSize=12,
-                textColor=colors.HexColor("#0f172a"),
-                spaceBefore=10,
-                spaceAfter=6
-            )
-
+            title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=16, textColor=colors.HexColor("#1e293b"), spaceAfter=6)
+            subtitle_style = ParagraphStyle('SubTitleStyle', parent=styles['Normal'], fontSize=9, textColor=colors.HexColor("#64748b"), spaceAfter=15)
+            h2_style = ParagraphStyle('H2Style', parent=styles['Heading2'], fontSize=12, textColor=colors.HexColor("#0f172a"), spaceBefore=10, spaceAfter=6)
             body_style = ParagraphStyle('BodyStyle', parent=styles['Normal'], fontSize=10, leading=14)
 
             story.append(Paragraph("KARE-Immobilien — Wohnungsabnahmeprotokoll", title_style))
             story.append(Paragraph("Talstr. 32, 07545 Gera | Tel.: 0365 / 800 49 37 | E-Mail: Info@KARE-Immobilien.de", subtitle_style))
             story.append(Spacer(1, 10))
 
-            # Part 1 Data
+            # 1. Objektdaten
             story.append(Paragraph("1. Objektdaten & Vertragsparteien", h2_style))
-            data_part1 = [
-                [Paragraph(f"<b>{k}:</b>", body_style), Paragraph(v.get(), body_style)] 
-                for k, v in [
-                    ("Objektanschrift", self.entries["objekt_anschrift"]),
-                    ("Vermieter", self.entries["vermieter"]),
-                    ("Neuer Mieter", self.entries["mieter_neu"]),
-                    ("Ausziehender Mieter", self.entries["mieter_alt"]),
-                    ("Datum der Abnahme", self.entries["datum"])
-                ]
+            data_p1 = [
+                [Paragraph("<b>Objektanschrift:</b>", body_style), Paragraph(objekt_anschrift, body_style)],
+                [Paragraph("<b>Vermieter:</b>", body_style), Paragraph(vermieter, body_style)],
+                [Paragraph("<b>Neuer Mieter:</b>", body_style), Paragraph(mieter_neu, body_style)],
+                [Paragraph("<b>Ausziehender Mieter:</b>", body_style), Paragraph(mieter_alt, body_style)],
+                [Paragraph("<b>Datum:</b>", body_style), Paragraph(datum.strftime("%d.%m.%Y"), body_style)],
             ]
-            t1 = Table(data_part1, colWidths=[150, 380])
+            t1 = Table(data_p1, colWidths=[150, 380])
             t1.setStyle(TableStyle([
                 ('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#f8fafc")),
                 ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor("#cbd5e1")),
@@ -267,18 +104,14 @@ class WohnungsabnahmeApp:
             story.append(t1)
             story.append(Spacer(1, 10))
 
-            # Part 2 Meters
+            # 2. Zählerstände
             story.append(Paragraph("2. Zählerstände", h2_style))
-            meter_data = [["Zählerart", "Zählernummer", "Zählerstand"]]
-            for m_name, (ent_nr, ent_val) in self.meter_entries.items():
-                meter_data.append([m_name, ent_nr.get(), ent_val.get()])
-
-            t2 = Table(meter_data, colWidths=[200, 150, 180])
+            t2_data = [["Zählerart", "Zählernummer", "Zählerstand"]] + [[m, nr, val] for m, nr, val in meter_data]
+            t2 = Table(t2_data, colWidths=[200, 150, 180])
             t2.setStyle(TableStyle([
                 ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#1e293b")),
                 ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
                 ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-                ('BOTTOMPADDING', (0,0), (-1,0), 6),
                 ('BACKGROUND', (0,1), (-1,-1), colors.HexColor("#f8fafc")),
                 ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#cbd5e1")),
                 ('TOPPADDING', (0,1), (-1,-1), 5),
@@ -287,18 +120,14 @@ class WohnungsabnahmeApp:
             story.append(t2)
             story.append(Spacer(1, 10))
 
-            # Part 3 Keys
+            # 3. Schlüssel
             story.append(Paragraph("3. Schlüsselübergabe", h2_style))
-            key_data = [["Schlüsselart", "Anzahl"]]
-            for k_name, ent_cnt in self.key_entries.items():
-                key_data.append([k_name, ent_cnt.get()])
-
-            t3 = Table(key_data, colWidths=[330, 200])
+            t3_data = [["Schlüsselart", "Anzahl"]] + [[k, str(c)] for k, c in key_data]
+            t3 = Table(t3_data, colWidths=[330, 200])
             t3.setStyle(TableStyle([
                 ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#1e293b")),
                 ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
                 ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-                ('BOTTOMPADDING', (0,0), (-1,0), 6),
                 ('BACKGROUND', (0,1), (-1,-1), colors.HexColor("#f8fafc")),
                 ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#cbd5e1")),
                 ('TOPPADDING', (0,1), (-1,-1), 5),
@@ -307,10 +136,9 @@ class WohnungsabnahmeApp:
             story.append(t3)
             story.append(Spacer(1, 10))
 
-            # Part 4 Maengel
+            # 4. Mängel
             story.append(Paragraph("4. Mängel, Zustand & Bemerkungen", h2_style))
-            maengel_text = self.text_maengel.get("1.0", tk.END).strip()
-            t4 = Table([[Paragraph(maengel_text, body_style)]], colWidths=[530])
+            t4 = Table([[Paragraph(maengel, body_style)]], colWidths=[530])
             t4.setStyle(TableStyle([
                 ('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#f8fafc")),
                 ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor("#cbd5e1")),
@@ -320,26 +148,25 @@ class WohnungsabnahmeApp:
             story.append(t4)
             story.append(Spacer(1, 30))
 
-            # Signatures
+            # Unterschriften
             sig_data = [
                 ["___________________________________", "___________________________________"],
                 ["Unterschrift Vermietung / KARE", "Unterschrift Mieter"]
             ]
             t_sig = Table(sig_data, colWidths=[265, 265])
-            t_sig.setStyle(TableStyle([
-                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-                ('TOPPADDING', (0,0), (-1,-1), 4),
-            ]))
+            t_sig.setStyle(TableStyle([('ALIGN', (0,0), (-1,-1), 'CENTER'), ('TOPPADDING', (0,0), (-1,-1), 4)]))
             story.append(t_sig)
 
             doc.build(story)
-            messagebox.showinfo("Erfolg", f"Protokoll erfolgreich gespeichert unter:\n{file_path}")
-
+            pdf_bytes = buffer.getvalue()
+            
+            st.success("PDF erfolgreich erstellt!")
+            st.download_button(
+                label="📥 PDF herunterladen",
+                data=pdf_bytes,
+                file_name="Wohnungsabnahmeprotokoll.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
         except Exception as e:
-            messagebox.showerror("Fehler", f"Fehler beim Erstellen der PDF:\n{str(e)}")
-
-
-if __name__ == "__main__":
-    root = tk.Tk()
-    app = WohnungsabnahmeApp(root)
-    root.mainloop()
+            st.error(f"Fehler bei der PDF-Generierung: {e}")
