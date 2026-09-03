@@ -15,6 +15,40 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# --- SICHERE AUTHENTIFIZIERUNG VIA STREAMLIT SECRETS ---
+try:
+    USER_CREDENTIALS = dict(st.secrets["credentials"])
+except Exception:
+    st.error(
+        "Fehler: Keine Zugangsdaten in den Streamlit Secrets gefunden. Bitte"
+        " trage sie im Cloud-Dashboard ein."
+    )
+    st.stop()
+
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+if not st.session_state.authenticated:
+    st.title("🔐 KARE-Immobilien – Interner Login")
+    st.markdown("Bitte logge dich ein, um auf das Zählerprotokoll zuzugreifen.")
+
+    with st.form("login_form"):
+        username = st.text_input("Benutzername")
+        password = st.text_input("Passwort", type="password")
+        login_btn = st.form_submit_button("Einloggen")
+
+        if login_btn:
+            if (
+                username in USER_CREDENTIALS
+                and USER_CREDENTIALS[username] == password
+            ):
+                st.session_state.authenticated = True
+                st.session_state.user = username
+                st.rerun()
+            else:
+                st.error("Falscher Benutzername oder falsches Passwort!")
+    st.stop()
+
 # 2. Modernes CSS Styling einfügen (Kompaktere Buttons & Abstände im Menü)
 st.markdown(
     """
@@ -619,34 +653,44 @@ if st.button(
         # 4. Unterschriften Sektion in PDF einfügen
         if pdf.get_y() > 220:
             pdf.add_page()
-            
+
         pdf.chapter_title("4. Unterschriften")
         pdf.ln(2)
-        
+
         sig_y = pdf.get_y()
-        
+
         # Vermieter Unterschrift verarbeiten
-        if canvas_vermieter.json_data is not None and len(canvas_vermieter.json_data["objects"]) > 0:
+        if (
+            canvas_vermieter.json_data is not None
+            and len(canvas_vermieter.json_data["objects"]) > 0
+        ):
             pil_img_v = canvas_vermieter.image_data
             if pil_img_v is not None:
                 img_v = Image.fromarray(pil_img_v.astype("uint8"), mode="RGBA")
                 bg_v = Image.new("RGB", img_v.size, (255, 255, 255))
                 bg_v.paste(img_v, (0, 0), img_v)
-                temp_sig_v = tempfile.NamedTemporaryFile(delete=False, suffix=".png").name
+                temp_sig_v = tempfile.NamedTemporaryFile(
+                    delete=False, suffix=".png"
+                ).name
                 bg_v.save(temp_sig_v, "PNG")
-                
+
                 pdf.image(temp_sig_v, x=14, y=sig_y, w=85, h=35)
-                
+
         # Mieter Unterschrift verarbeiten
-        if canvas_mieter.json_data is not None and len(canvas_mieter.json_data["objects"]) > 0:
+        if (
+            canvas_mieter.json_data is not None
+            and len(canvas_mieter.json_data["objects"]) > 0
+        ):
             pil_img_m = canvas_mieter.image_data
             if pil_img_m is not None:
                 img_m = Image.fromarray(pil_img_m.astype("uint8"), mode="RGBA")
                 bg_m = Image.new("RGB", img_m.size, (255, 255, 255))
                 bg_m.paste(img_m, (0, 0), img_m)
-                temp_sig_m = tempfile.NamedTemporaryFile(delete=False, suffix=".png").name
+                temp_sig_m = tempfile.NamedTemporaryFile(
+                    delete=False, suffix=".png"
+                ).name
                 bg_m.save(temp_sig_m, "PNG")
-                
+
                 pdf.image(temp_sig_m, x=111, y=sig_y, w=85, h=35)
 
         # Unterschriftslinien und Beschriftungen unter den Bildern
