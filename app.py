@@ -12,13 +12,24 @@ st.set_page_config(
     page_title="Zählerprotokoll KARE", page_icon="⚡", layout="centered"
 )
 
-# 2. Modernes CSS Styling einfügen
+# 2. Modernes CSS Styling einfügen (Sidebar-Button bleibt erreichbar)
 st.markdown(
     """
 <style>
     #MainMenu {visibility: hidden;}
-    header {visibility: hidden;}
     footer {visibility: hidden;}
+    
+    header {
+        visibility: visible !important;
+        background-color: transparent !important;
+    }
+    
+    header * {
+        visibility: hidden;
+    }
+    header [data-testid="collapsedControl"] {
+        visibility: visible !important;
+    }
     
     .block-container {
         padding-top: 1rem;
@@ -131,10 +142,8 @@ if "archiv_historie" not in st.session_state:
     st.session_state.archiv_historie = lade_json(DB_FILE, [])
 
 if "strassen_liste" not in st.session_state:
-    # Standard-Straßen + bereits gespeicherte laden
     standard_strassen = ["Talstraße 32"]
     geladene_strassen = lade_json(STRASSEN_FILE, standard_strassen)
-    # Sicherstellen, dass Talstraße immer da ist
     if "Talstraße 32" not in geladene_strassen:
         geladene_strassen.insert(0, "Talstraße 32")
     st.session_state.strassen_liste = geladene_strassen
@@ -225,7 +234,6 @@ with st.sidebar:
                                             item["name"]
                                         )
 
-                                # Sicherheitsabfrage zum Löschen
                                 if (
                                     st.session_state.delete_target == item["name"]
                                 ):
@@ -490,18 +498,15 @@ if st.button(
             " des Mieters aus!"
         )
     else:
-        # PDF Erstellung starten
         pdf = ModernPDF()
         pdf.add_page()
         pdf.set_font("helvetica", size=10)
 
-        # Dokumententitel
         pdf.set_font("helvetica", "B", 15)
         pdf.set_text_color(15, 23, 42)
         pdf.cell(0, 8, "ZÄHLERPROTOKOLL", 0, 1, "C")
         pdf.ln(5)
 
-        # 1. Stammdaten
         pdf.chapter_title("1. Stammdaten")
         pdf.set_font("helvetica", size=10)
         pdf.set_text_color(51, 65, 85)
@@ -558,7 +563,6 @@ if st.button(
         pdf.cell(0, 6, datum.strftime("%d.%m.%Y"), 0, 1)
         pdf.ln(4)
 
-        # 2. Zählerstände
         pdf.chapter_title("2. Zählerstände")
         pdf.set_font("helvetica", size=10)
         for z in zaehler_daten:
@@ -578,7 +582,6 @@ if st.button(
             )
         pdf.ln(4)
 
-        # 3. Fotos ins PDF einbetten (falls vorhanden)
         if uploaded_files:
             pdf.chapter_title("3. Fotodokumentation")
             pdf.set_font("helvetica", size=9)
@@ -631,17 +634,14 @@ if st.button(
             pdf.set_y(current_y)
             pdf.ln(4)
 
-        # Dateinamen generieren
         sauberer_mieter = "".join(
             c for c in mieter if c.isalnum() or c in (" ", "_", "-")
         ).strip()
         filename = f"Zaehlerprotokoll_{sauberer_mieter}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
         file_path = os.path.join(ARCHIV_DIR, filename)
 
-        # PDF lokal speichern
         pdf.output(file_path)
 
-        # In die persistente Historie eintragen & auf Festplatte schreiben
         neuer_eintrag = {
             "name": filename,
             "pfad": file_path,
