@@ -12,24 +12,13 @@ st.set_page_config(
     page_title="Zählerprotokoll KARE", page_icon="⚡", layout="centered"
 )
 
-# 2. Modernes CSS Styling einfügen (Sidebar-Button bleibt erreichbar)
+# 2. Modernes CSS Styling einfügen
 st.markdown(
     """
 <style>
     #MainMenu {visibility: hidden;}
+    header {visibility: hidden;}
     footer {visibility: hidden;}
-    
-    header {
-        visibility: visible !important;
-        background-color: transparent !important;
-    }
-    
-    header * {
-        visibility: hidden;
-    }
-    header [data-testid="collapsedControl"] {
-        visibility: visible !important;
-    }
     
     .block-container {
         padding-top: 1rem;
@@ -306,17 +295,31 @@ with st.sidebar:
                             st.rerun()
 
 
-# --- HEADER BEREICH IN DER APP ---
-logo_path = "kare_logo.png"
-if os.path.exists(logo_path):
-    st.image(logo_path, width=400)
-else:
-    st.warning("⚠️ Hinweis: Die Datei 'kare_logo.png' wurde nicht gefunden.")
+# --- HEADER BEREICH IN DER APP & EIGENER MENÜ-BUTTON ---
+col_btn, col_logo = st.columns([1, 4])
+
+with col_btn:
+    # JavaScript-Befehl im Streamlit-Button, um die Sidebar per Klick zu öffnen/schließen
     st.markdown(
-        "<h1 style='text-align: center;'>⚡ KARE-Immobilien"
-        " Zählerprotokoll</h1>",
+        """
+        <button onclick="parent.window.dispatchEvent(new KeyboardEvent('keydown', {key: 'm', ctrlKey: true, bubbles: true}));" 
+                style="background-color: #2e7d32; color: white; border: none; padding: 10px 15px; border-radius: 8px; font-weight: bold; cursor: pointer; height: 3rem; width: 100%;">
+            📂 Menü
+        </button>
+        """,
         unsafe_allow_html=True,
     )
+
+with col_logo:
+    logo_path = "kare_logo.png"
+    if os.path.exists(logo_path):
+        st.image(logo_path, width=350)
+    else:
+        st.warning("⚠️ Hinweis: Die Datei 'kare_logo.png' wurde nicht gefunden.")
+        st.markdown(
+            "<h3 style='margin: 0;'>⚡ KARE-Immobilien Zählerprotokoll</h3>",
+            unsafe_allow_html=True,
+        )
 
 st.write("")
 
