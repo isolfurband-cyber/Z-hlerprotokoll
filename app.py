@@ -15,7 +15,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# 2. Modernes CSS Styling einfügen
+# 2. Modernes CSS Styling einfügen (Kompaktere Buttons & Abstände im Menü)
 st.markdown(
     """
 <style>
@@ -28,9 +28,16 @@ st.markdown(
     }
     
     .stButton>button {
-        border-radius: 8px;
+        border-radius: 6px;
         font-weight: 600;
-        height: 3rem;
+        height: 2.4rem;
+    }
+    
+    /* Kompaktere Buttons in der Sidebar */
+    [data-testid="stSidebar"] .stButton>button {
+        height: 2rem;
+        padding: 0px 8px;
+        font-size: 13px;
     }
 </style>
 """,
@@ -143,13 +150,13 @@ if "delete_target" not in st.session_state:
     st.session_state.delete_target = None
 
 
-# --- SEITENLEISTE (HIERARCHIE: Jahr > Straße > Etage) ---
+# --- SEITENLEISTE (HIERARCHIE: Jahr > Straße [aufklappbar] > Protokoll) ---
 with st.sidebar:
     st.image(
-        "kare_logo.png" if os.path.exists("kare_logo.png") else "", width=150
+        "kare_logo.png" if os.path.exists("kare_logo.png") else "",
+        use_container_width=True,
     )
-    st.title("📂 Archiv-Browser")
-    st.write("Struktur: **Jahr ➔ Straße ➔ Etage**")
+    st.title("📂 Archiv")
     st.divider()
 
     if not st.session_state.archiv_historie:
@@ -179,28 +186,25 @@ with st.sidebar:
                     strassen_dict[strasse].append(item)
 
                 for strasse, eintraege_strasse in strassen_dict.items():
-                    st.markdown(f"📍 **{strasse}**")
-
-                    # 3. Nach Etagen gruppieren
-                    etagen_dict = {}
-                    for item in eintraege_strasse:
-                        etage = (
-                            item.get("etage", "Keine Etage angegeben")
-                            if item.get("etage")
-                            else "Keine Etage angegeben"
-                        )
-                        if etage not in etagen_dict:
-                            etagen_dict[etage] = []
-                        etagen_dict[etage].append(item)
-
-                    for etage, eintraege_etage in etagen_dict.items():
-                        st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;🏢 *{etage}*")
-                        for item in eintraege_etage:
+                    # Jede Straße als eigener aufklappbarer Expander für maximale Platzersparnis
+                    with st.expander(
+                        f"📍 {strasse} ({len(eintraege_strasse)})"
+                    ):
+                        for item in eintraege_strasse:
                             real_index = st.session_state.archiv_historie.index(
                                 item
                             )
-                            st.caption(
-                                f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;👤 {item['mieter']} ({item.get('zeit', '')})"
+                            etage_txt = (
+                                f" • {item.get('etage')}"
+                                if item.get("etage")
+                                else ""
+                            )
+
+                            st.markdown(
+                                f"**👤 {item['mieter']}**{etage_txt}<br><span"
+                                f" style='font-size:11px; color:gray;'>🕒"
+                                f" {item.get('zeit', '')}</span>",
+                                unsafe_allow_html=True,
                             )
 
                             if os.path.exists(item["pfad"]):
@@ -208,18 +212,16 @@ with st.sidebar:
                                 with col_dl:
                                     with open(item["pfad"], "rb") as pdf_file:
                                         st.download_button(
-                                            label="📥",
+                                            label="📥 PDF",
                                             data=pdf_file,
                                             file_name=item["name"],
                                             mime="application/pdf",
                                             key=f"dl_{real_index}_{item['name']}",
-                                            help="PDF herunterladen",
                                         )
                                 with col_del:
                                     if st.button(
-                                        "🗑️",
+                                        "🗑️ Löschen",
                                         key=f"btn_del_{real_index}_{item['name']}",
-                                        help="Protokoll löschen",
                                     ):
                                         st.session_state.delete_target = (
                                             item["name"]
@@ -259,18 +261,14 @@ with st.sidebar:
                                             )
                                             st.rerun()
                             else:
-                                st.error("Datei nicht gefunden.")
-                    st.markdown("---")
+                                st.error("Datei weg.")
+                            st.divider()
 
-    # --- STRASSEN VERWALTEN (VORSCHLÄGE LÖSCHEN) ---
+    # --- STRASSEN VERWALTEN ---
     st.divider()
     with st.expander("⚙️ Straßen verwalten"):
-        st.write(
-            "Hier kannst du gespeicherte Straßen-Vorschläge aus der Liste"
-            " entfernen:"
-        )
         if not st.session_state.strassen_liste:
-            st.info("Keine Straßen gespeichert.")
+            st.info("Keine Straßen.")
         else:
             for s_idx, s_name in enumerate(
                 list(st.session_state.strassen_liste)
@@ -279,28 +277,22 @@ with st.sidebar:
                 with col_s1:
                     st.text(s_name)
                 with col_s2:
-                    if st.button(
-                        "❌",
-                        key=f"del_str_{s_idx}",
-                        help=f"Straße '{s_name}' aus Vorschlägen löschen",
-                    ):
+                    if st.button("❌", key=f"del_str_{s_idx}"):
                         if s_name == "Talstraße 32":
-                            st.warning(
-                                "Hauptadresse kann nicht entfernt werden."
-                            )
+                            st.warning("Hauptadresse geschützt.")
                         else:
                             st.session_state.strassen_liste.remove(s_name)
                             speichere_json(
                                 STRASSEN_FILE, st.session_state.strassen_liste
                             )
-                            st.success(f"'{s_name}' entfernt!")
+                            st.success("Entfernt!")
                             st.rerun()
 
 
-# --- HEADER BEREICH IN DER HÄUPTSEITE ---
+# --- HEADER BEREICH IN DER HAUPTSEITE (VOLE BREITE) ---
 logo_path = "kare_logo.png"
 if os.path.exists(logo_path):
-    st.image(logo_path, width=400)
+    st.image(logo_path, use_container_width=True)
 else:
     st.warning("⚠️ Hinweis: Die Datei 'kare_logo.png' wurde nicht gefunden.")
     st.markdown(
