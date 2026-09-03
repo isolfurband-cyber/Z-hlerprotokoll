@@ -102,6 +102,57 @@ class ModernPDF(FPDF):
         self.ln(4)
 
 
+# --- ARCHIV-ORDNER INITIALISIEREN ---
+ARCHIV_DIR = "archiv_protokolle"
+if not os.path.exists(ARCHIV_DIR):
+    os.makedirs(ARCHIV_DIR)
+
+# Session State für die Archiv-Liste initialisieren
+if "archiv_historie" not in st.session_state:
+    st.session_state.archiv_historie = []
+    # Bereits vorhandene Dateien im Ordner einlesen (falls vorhanden)
+    if os.path.exists(ARCHIV_DIR):
+        for f in sorted(os.listdir(ARCHIV_DIR)):
+            if f.endswith(".pdf"):
+                file_path = os.path.join(ARCHIV_DIR, f)
+                st.session_state.archiv_historie.append({
+                    "name": f,
+                    "pfad": file_path,
+                    "zeit": datetime.fromtimestamp(
+                        os.path.getmtime(file_path)
+                    ).strftime("%d.%m.%Y %H:%M"),
+                })
+
+
+# --- SEITENLEISTE (ARCHIV & UNTERMENÜ) ---
+with st.sidebar:
+    st.image(
+        "kare_logo.png" if os.path.exists("kare_logo.png") else "", width=150
+    )
+    st.title("📂 Archiv & Menü")
+    st.write(
+        "Hier findest du alle in dieser Sitzung bereits generierten Protokolle zum direkten Abruf."
+    )
+    st.divider()
+
+    if not st.session_state.archiv_historie:
+        st.info("Noch keine Protokolle im Archiv vorhanden.")
+    else:
+        for item in st.session_state.archiv_historie:
+            st.markdown(f"**📄 {item['name']}**")
+            st.caption(f"Erstellt am: {item['zeit']}")
+            if os.path.exists(item["pfad"]):
+                with open(item["pfad"], "rb") as pdf_file:
+                    st.download_button(
+                        label="📥 Herunterladen",
+                        data=pdf_file,
+                        file_name=item["name"],
+                        mime="application/pdf",
+                        key=f"dl_{item['name']}",
+                    )
+            st.divider()
+
+
 # --- HEADER BEREICH IN DER APP ---
 logo_path = "kare_logo.png"
 if os.path.exists(logo_path):
@@ -256,19 +307,14 @@ st.write("")
 
 # --- SPEICHERN BUTTON & PDF GENERIERUNG ---
 if st.button(
-    "📄 Protokoll generieren & herunterladen",
+    "📄 Protokoll generieren & im Archiv speichern",
     type="primary",
     use_container_width=True,
 ):
     if not wohnung or not mieter:
         st.error("Bitte fülle mindestens die Adresse und den Namen des Mieters aus!")
     else:
-        st.success(
-            "Protokoll wurde erfolgreich erstellt! Der Download startet gleich."
-        )
-        st.balloons()
-
-        # PDF Erstellung starten (ModernPDF Klasse nutzen)
+        # PDF Erstellung starten
         pdf = ModernPDF()
         pdf.add_page()
         pdf.set_font("helvetica", size=10)
@@ -360,7 +406,6 @@ if st.button(
             )
             pdf.ln(2)
 
-            # Temporäre Bilddateien für das PDF erzeugen und im Raster anordnen
             x_start = 14
             y_start = pdf.get_y()
             img_width = 56
@@ -372,12 +417,10 @@ if st.button(
             current_y = y_start
 
             for idx, uploaded_file in enumerate(uploaded_files):
-                # Wenn wir am Seitenende ankommen, neue Seite hinzufügen
                 if current_y > 230:
                     pdf.add_page()
                     current_y = 20
 
-                # Bild temporär abspeichern
                 img = Image.open(uploaded_file)
                 temp_img_path = tempfile.NamedTemporaryFile(
                     delete=False, suffix=".jpg"
@@ -392,33 +435,42 @@ if st.button(
                     h=img_height,
                 )
 
-                # Koordinaten für nächstes Bild berechnen (2 Bilder pro Zeile)
                 if (idx + 1) % 2 == 0:
                     current_x = x_start
                     current_y += img_height + y_gap
                 else:
                     current_x += img_width + x_gap
 
-            # Cursor nach den Bildern positionieren
             if len(uploaded_files) % 2 != 0:
                 current_y += img_height + y_gap
             else:
-                current_y += (
-                    img_height + y_gap
-                )  # Falls genau voll, einen Puffer lassen
+                current_y += img_height + y_gap
 
             pdf.set_y(current_y)
             pdf.ln(4)
 
-        # PDF temporär speichern für Download
-        temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-        pdf.output(temp_pdf.name)
+        # Permanenten Dateinamen im Archiv-Ordner erzeugen
+        sauberer_mieter = "".join(
+            c for c in mieter if c.isalnum() or c in (" ", "_", "-")
+        ).strip()
+        filename = f"Zaehlerprotokoll_{sauberer_mieter}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        file_path = os.path.join(ARCHIV_DIR, filename)
 
-        with open(temp_pdf.name, "rb") as f:
-            st.download_button(
-                label="📥 PDF herunterladen",
-                data=f,
-                file_name=f"Zaehlerprotokoll_{mieter.replace(' ', '_')}.pdf",
-                mime="application/pdf",
-                use_container_width=True,
-            )
+        # PDF lokal speichern
+        pdf.output(file_path)
+
+        # In Session-Historie eintragen
+        st.session_state.archiv_historie.insert(
+            0,
+            {
+                "name": filename,
+                "pfad": file_path,
+                "zeit": datetime.now().strftime("%d.%m.%Y %H:%M"),
+            },
+        )
+
+        st.success(
+            "Protokoll wurde erstellt und im Online-Archiv (Seitenleiste) gespeichert!"
+        )
+        st.balloons()
+        st.rerun()
