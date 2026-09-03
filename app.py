@@ -15,7 +15,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# 2. Modernes CSS Styling einfügen (lässt den Header normal sichtbar, damit der Standard-Pfeil wieder da ist)
+# 2. Modernes CSS Styling einfügen
 st.markdown(
     """
 <style>
@@ -583,7 +583,8 @@ if st.button(
             pdf.ln(2)
 
             x_start = 14
-            y_start = pdf.get_y()            img_width = 56
+            y_start = pdf.get_y()
+            img_width = 56
             img_height = 42
             x_gap = 6
             y_gap = 8
