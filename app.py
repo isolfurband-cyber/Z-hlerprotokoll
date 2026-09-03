@@ -110,9 +110,8 @@ if not os.path.exists(ARCHIV_DIR):
 # Session State für die Archiv-Liste initialisieren
 if "archiv_historie" not in st.session_state:
     st.session_state.archiv_historie = []
-    # Bereits vorhandene Dateien im Ordner einlesen (falls vorhanden)
     if os.path.exists(ARCHIV_DIR):
-        for f in sorted(os.listdir(ARCHIV_DIR)):
+        for f in sorted(os.listdir(ARCHIV_DIR), reverse=True):
             if f.endswith(".pdf"):
                 file_path = os.path.join(ARCHIV_DIR, f)
                 st.session_state.archiv_historie.append({
@@ -124,32 +123,69 @@ if "archiv_historie" not in st.session_state:
                 })
 
 
-# --- SEITENLEISTE (ARCHIV & UNTERMENÜ) ---
+# --- SEITENLEISTE (ARCHIV & LÖSCH-LOGIK) ---
 with st.sidebar:
     st.image(
         "kare_logo.png" if os.path.exists("kare_logo.png") else "", width=150
     )
     st.title("📂 Archiv & Menü")
     st.write(
-        "Hier findest du alle in dieser Sitzung bereits generierten Protokolle zum direkten Abruf."
+        "Hier findest du alle im Archiv gespeicherten Protokolle zum Abruf oder zum Löschen."
     )
     st.divider()
 
     if not st.session_state.archiv_historie:
         st.info("Noch keine Protokolle im Archiv vorhanden.")
     else:
-        for item in st.session_state.archiv_historie:
+        # State-Variablen für Bestätigungsdialoge initialisieren
+        if "delete_target" not in st.session_state:
+            st.session_state.delete_target = None
+
+        for index, item in enumerate(st.session_state.archiv_historie):
             st.markdown(f"**📄 {item['name']}**")
             st.caption(f"Erstellt am: {item['zeit']}")
+
             if os.path.exists(item["pfad"]):
+                # Download-Button
                 with open(item["pfad"], "rb") as pdf_file:
                     st.download_button(
                         label="📥 Herunterladen",
                         data=pdf_file,
                         file_name=item["name"],
                         mime="application/pdf",
-                        key=f"dl_{item['name']}",
+                        key=f"dl_{index}_{item['name']}",
                     )
+
+                # Löschen-Knopf
+                if st.button("🗑️ Löschen", key=f"btn_del_{index}_{item['name']}"):
+                    st.session_state.delete_target = item["name"]
+
+                # Sicherheitsabfrage (erscheint direkt unter dem Protokoll, wenn angeklickt)
+                if st.session_state.delete_target == item["name"]:
+                    st.warning(
+                        "Möchtest du dieses Protokoll wirklich unwiderruflich"
+                        " löschen?"
+                    )
+                    col_y, col_n = st.columns(2)
+                    with col_y:
+                        if st.button(
+                            "Ja", key=f"yes_{index}_{item['name']}"
+                        ):
+                            # Datei physisch löschen
+                            if os.path.exists(item["pfad"]):
+                                os.remove(item["pfad"])
+                            # Aus Historie entfernen
+                            st.session_state.archiv_historie.pop(index)
+                            st.session_state.delete_target = None
+                            st.success("Protokoll gelöscht!")
+                            st.rerun()
+                    with col_n:
+                        if st.button(
+                            "Nein", key=f"no_{index}_{item['name']}"
+                        ):
+                            st.session_state.delete_target = None
+                            st.rerun()
+
             st.divider()
 
 
