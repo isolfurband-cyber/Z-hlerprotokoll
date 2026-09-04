@@ -7,20 +7,25 @@ from PIL import Image, ImageDraw
 import streamlit as st
 from streamlit_drawable_canvas import st_canvas
 
-# 1. Seitenkonfiguration
+# 1. Seitenkonfiguration (Seitenleiste standardmäßig eingeklappt/versteckt)
 st.set_page_config(
     page_title="Zählerprotokoll KARE",
     page_icon="⚡",
     layout="centered",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
-# 2. Modernes CSS Styling einfügen
+# 2. Modernes CSS Styling (Blendet das Seitenleisten-Menü komplett aus)
 st.markdown(
     """
 <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
+    
+    /* Seitenleiste komplett verstecken */
+    [data-testid="stSidebar"] {
+        display: none;
+    }
     
     .block-container {
         padding-top: 1rem;
@@ -31,12 +36,6 @@ st.markdown(
         border-radius: 6px;
         font-weight: 600;
         height: 2.4rem;
-    }
-    
-    [data-testid="stSidebar"] .stButton>button {
-        height: 2rem;
-        padding: 0px 8px;
-        font-size: 13px;
     }
 </style>
 """,
@@ -108,68 +107,10 @@ class ModernPDF(FPDF):
         self.ln(4)
 
 
-STRASSEN_FILE = "strassen_datenbank.json"
-
-
-def lade_json(datei, standard_wert):
-    if os.path.exists(datei):
-        try:
-            with open(datei, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return standard_wert
-    return standard_wert
-
-
-def speichere_json(datei, daten):
-    with open(datei, "w", encoding="utf-8") as f:
-        json.dump(daten, f, ensure_ascii=False, indent=4)
-
-
-if "strassen_liste" not in st.session_state:
-    standard_strassen = ["Talstraße 32"]
-    geladene_strassen = lade_json(STRASSEN_FILE, standard_strassen)
-    if "Talstraße 32" not in geladene_strassen:
-        geladene_strassen.insert(0, "Talstraße 32")
-    st.session_state.strassen_liste = geladene_strassen
-
 if "pdf_ready" not in st.session_state:
     st.session_state.pdf_ready = False
     st.session_state.pdf_data = None
     st.session_state.pdf_filename = None
-
-
-# --- SEITENLEISTE (Nur Straßenverwaltung) ---
-with st.sidebar:
-    st.image(
-        "kare_logo.png" if os.path.exists("kare_logo.png") else "",
-        use_container_width=True,
-    )
-    st.title("⚙️ Einstellungen")
-    st.divider()
-
-    with st.expander("Straßen verwalten", expanded=True):
-        if not st.session_state.strassen_liste:
-            st.info("Keine Straßen.")
-        else:
-            for s_idx, s_name in enumerate(
-                list(st.session_state.strassen_liste)
-            ):
-                col_s1, col_s2 = st.columns([3, 1])
-                with col_s1:
-                    st.text(s_name)
-                with col_s2:
-                    if st.button("❌", key=f"del_str_{s_idx}"):
-                        if s_name == "Talstraße 32":
-                            st.warning("Hauptadresse geschützt.")
-                        else:
-                            st.session_state.strassen_liste.remove(s_name)
-                            speichere_json(
-                                STRASSEN_FILE, st.session_state.strassen_liste
-                            )
-                            st.success("Entfernt!")
-                            st.rerun()
-
 
 # --- HAUPTSEITE ---
 logo_path = "kare_logo.png"
@@ -185,48 +126,12 @@ else:
 
 st.write("")
 
-# Direkter Download-Bereich, falls ein Protokoll frisch generiert wurde
-if st.session_state.pdf_ready:
-    st.success(
-        "🎉 Dein Protokoll wurde erfolgreich erstellt und kann heruntergeladen"
-        " werden:"
-    )
-    st.download_button(
-        label="📥 PDF-Protokoll jetzt herunterladen / teilen",
-        data=st.session_state.pdf_data,
-        file_name=st.session_state.pdf_filename,
-        mime="application/pdf",
-        type="primary",
-        use_container_width=True,
-    )
-    st.divider()
-
 with st.container(border=True):
     st.subheader("👤 1. Stammdaten & Straßen-Rubrik")
-    dropdown_strassen = list(st.session_state.strassen_liste) + [
-        "➕ Neue Straße hinzufügen..."
-    ]
 
     col_str1, col_str2 = st.columns(2)
     with col_str1:
-        strassen_auswahl = st.selectbox(
-            "Straße (Rubrik-Auswahl)", dropdown_strassen
-        )
-        if strassen_auswahl == "➕ Neue Straße hinzufügen...":
-            neue_strasse_input = st.text_input(
-                "Geben Sie den Namen der neuen Straße ein:"
-            )
-            strasse = neue_strasse_input.strip()
-            if (
-                strasse
-                and strasse not in st.session_state.strassen_liste
-                and strasse != "➕ Neue Straße hinzufügen..."
-            ):
-                st.session_state.strassen_liste.append(strasse)
-                speichere_json(STRASSEN_FILE, st.session_state.strassen_liste)
-        else:
-            strasse = strassen_auswahl
-
+        strasse = st.text_input("Straße", value="Talstraße 32")
     with col_str2:
         ort = st.text_input("Ort, PLZ", value="07545 Gera")
 
@@ -561,7 +466,6 @@ if st.button(
         ).strip()
         filename = f"Zaehlerprotokoll_{sauberer_mieter}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
 
-        # PDF direkt als Bytes für den Download erzeugen
         pdf_output = pdf.output()
         if isinstance(pdf_output, str):
             pdf_bytes = pdf_output.encode("latin-1")
@@ -572,3 +476,19 @@ if st.button(
         st.session_state.pdf_filename = filename
         st.session_state.pdf_ready = True
         st.rerun()
+
+# Direkter Download-Bereich am Ende der Hauptseite, falls frisch generiert
+if st.session_state.pdf_ready:
+    st.divider()
+    st.success(
+        "🎉 Dein Protokoll wurde erfolgreich erstellt und kann heruntergeladen"
+        " werden:"
+    )
+    st.download_button(
+        label="📥 PDF-Protokoll jetzt herunterladen / teilen",
+        data=st.session_state.pdf_data,
+        file_name=st.session_state.pdf_filename,
+        mime="application/pdf",
+        type="primary",
+        use_container_width=True,
+    )
