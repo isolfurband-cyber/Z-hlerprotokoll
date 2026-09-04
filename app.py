@@ -49,7 +49,7 @@ if not st.session_state.authenticated:
                 st.error("Falscher Benutzername oder falsches Passwort!")
     st.stop()
 
-# 2. Modernes CSS Styling einfügen (Kompaktere Buttons & Abstände im Menü)
+# 2. Modernes CSS Styling einfügen
 st.markdown(
     """
 <style>
@@ -67,7 +67,6 @@ st.markdown(
         height: 2.4rem;
     }
     
-    /* Kompaktere Buttons in der Sidebar */
     [data-testid="stSidebar"] .stButton>button {
         height: 2rem;
         padding: 0px 8px;
@@ -79,7 +78,6 @@ st.markdown(
 )
 
 
-# Hilfsfunktion für abgerundete Ecken am Logo
 def add_rounded_corners(image_path, radius=20):
     img = Image.open(image_path).convert("RGBA")
     mask = Image.new("L", img.size, 0)
@@ -91,7 +89,6 @@ def add_rounded_corners(image_path, radius=20):
     return rounded_img
 
 
-# 3. Klasse für das PDF-Layout mit grünem Rahmen
 class ModernPDF(FPDF):
 
     def draw_page_border(self):
@@ -145,7 +142,6 @@ class ModernPDF(FPDF):
         self.ln(4)
 
 
-# --- DATENBANK & ARCHIV VERWALTUNG (PERSISTENT ÜBER JSON) ---
 ARCHIV_DIR = "archiv_protokolle"
 DB_FILE = "archiv_datenbank.json"
 STRASSEN_FILE = "strassen_datenbank.json"
@@ -169,7 +165,6 @@ def speichere_json(datei, daten):
         json.dump(daten, f, ensure_ascii=False, indent=4)
 
 
-# Session State initialisieren
 if "archiv_historie" not in st.session_state:
     st.session_state.archiv_historie = lade_json(DB_FILE, [])
 
@@ -184,7 +179,7 @@ if "delete_target" not in st.session_state:
     st.session_state.delete_target = None
 
 
-# --- SEITENLEISTE (HIERARCHIE: Jahr > Straße [aufklappbar] > Protokoll) ---
+# --- SEITENLEISTE (Ohne verschachtelte Expander) ---
 with st.sidebar:
     st.image(
         "kare_logo.png" if os.path.exists("kare_logo.png") else "",
@@ -196,7 +191,6 @@ with st.sidebar:
     if not st.session_state.archiv_historie:
         st.info("Noch keine Protokolle im Archiv vorhanden.")
     else:
-        # 1. Nach Jahren gruppieren
         jahre_dict = {}
         for item in st.session_state.archiv_historie:
             zeit_str = item.get("zeit", "")
@@ -211,7 +205,6 @@ with st.sidebar:
 
         for jahr in sorted(jahre_dict.keys(), reverse=True):
             with st.expander(f"📅 Jahr {jahr} ({len(jahre_dict[jahr])})"):
-                # 2. Nach Straßen gruppieren
                 strassen_dict = {}
                 for item in jahre_dict[jahr]:
                     strasse = item.get("strasse", "Unbekannte Straße")
@@ -220,84 +213,77 @@ with st.sidebar:
                     strassen_dict[strasse].append(item)
 
                 for strasse, eintraege_strasse in strassen_dict.items():
-                    with st.expander(
-                        f"📍 {strasse} ({len(eintraege_strasse)})"
-                    ):
-                        for item in eintraege_strasse:
-                            real_index = st.session_state.archiv_historie.index(
-                                item
-                            )
-                            etage_txt = (
-                                f" • {item.get('etage')}"
-                                if item.get("etage")
-                                else ""
-                            )
+                    # Fehlerbehebung: Statt Expander im Expander nutzen wir Markdown-Überschriften
+                    st.markdown(f"📍 **{strasse}**")
 
-                            st.markdown(
-                                f"**👤 {item['mieter']}**{etage_txt}<br><span"
-                                f" style='font-size:11px; color:gray;'>🕒"
-                                f" {item.get('zeit', '')}</span>",
-                                unsafe_allow_html=True,
-                            )
+                    for item in eintraege_strasse:
+                        real_index = st.session_state.archiv_historie.index(
+                            item
+                        )
+                        etage_txt = (
+                            f" • {item.get('etage')}"
+                            if item.get("etage")
+                            else ""
+                        )
 
-                            if os.path.exists(item["pfad"]):
-                                col_dl, col_del = st.columns([1, 1])
-                                with col_dl:
-                                    with open(item["pfad"], "rb") as pdf_file:
-                                        st.download_button(
-                                            label="📥 PDF",
-                                            data=pdf_file,
-                                            file_name=item["name"],
-                                            mime="application/pdf",
-                                            key=f"dl_{real_index}_{item['name']}",
-                                        )
-                                with col_del:
-                                    if st.button(
-                                        "🗑️ Löschen",
-                                        key=f"btn_del_{real_index}_{item['name']}",
-                                    ):
-                                        st.session_state.delete_target = (
-                                            item["name"]
-                                        )
+                        st.markdown(
+                            f"&nbsp;&nbsp;&nbsp;&nbsp;👤 **{item['mieter']}**{etage_txt}<br>&nbsp;&nbsp;&nbsp;&nbsp;<span"
+                            f" style='font-size:11px; color:gray;'>🕒"
+                            f" {item.get('zeit', '')}</span>",
+                            unsafe_allow_html=True,
+                        )
 
-                                if (
-                                    st.session_state.delete_target == item["name"]
+                        if os.path.exists(item["pfad"]):
+                            col_dl, col_del = st.columns([1, 1])
+                            with col_dl:
+                                with open(item["pfad"], "rb") as pdf_file:
+                                    st.download_button(
+                                        label="📥 PDF",
+                                        data=pdf_file,
+                                        file_name=item["name"],
+                                        mime="application/pdf",
+                                        key=f"dl_{real_index}_{item['name']}",
+                                    )
+                            with col_del:
+                                if st.button(
+                                    "🗑️ Löschen",
+                                    key=f"btn_del_{real_index}_{item['name']}",
                                 ):
-                                    st.warning("Wirklich löschen?")
-                                    col_y, col_n = st.columns(2)
-                                    with col_y:
-                                        if st.button(
-                                            "Ja",
-                                            key=f"yes_{real_index}_{item['name']}",
-                                        ):
-                                            if os.path.exists(item["pfad"]):
-                                                os.remove(item["pfad"])
-                                            st.session_state.archiv_historie.pop(
-                                                real_index
-                                            )
-                                            speichere_json(
-                                                DB_FILE,
-                                                st.session_state.archiv_historie,
-                                            )
-                                            st.session_state.delete_target = (
-                                                None
-                                            )
-                                            st.success("Gelöscht!")
-                                            st.rerun()
-                                    with col_n:
-                                        if st.button(
-                                            "Nein",
-                                            key=f"no_{real_index}_{item['name']}",
-                                        ):
-                                            st.session_state.delete_target = (
-                                                None
-                                            )
-                                            st.rerun()
-                            else:
-                                st.error("Datei weg.")
-                            st.divider()
+                                    st.session_state.delete_target = item[
+                                        "name"
+                                    ]
 
-    # --- STRASSEN VERWALTEN ---
+                            if st.session_state.delete_target == item["name"]:
+                                st.warning("Wirklich löschen?")
+                                col_y, col_n = st.columns(2)
+                                with col_y:
+                                    if st.button(
+                                        "Ja",
+                                        key=f"yes_{real_index}_{item['name']}",
+                                    ):
+                                        if os.path.exists(item["pfad"]):
+                                            os.remove(item["pfad"])
+                                        st.session_state.archiv_historie.pop(
+                                            real_index
+                                        )
+                                        speichere_json(
+                                            DB_FILE,
+                                            st.session_state.archiv_historie,
+                                        )
+                                        st.session_state.delete_target = None
+                                        st.success("Gelöscht!")
+                                        st.rerun()
+                                with col_n:
+                                    if st.button(
+                                        "Nein",
+                                        key=f"no_{real_index}_{item['name']}",
+                                    ):
+                                        st.session_state.delete_target = None
+                                        st.rerun()
+                        else:
+                            st.error("Datei weg.")
+                        st.divider()
+
     st.divider()
     with st.expander("⚙️ Straßen verwalten"):
         if not st.session_state.strassen_liste:
@@ -322,7 +308,7 @@ with st.sidebar:
                             st.rerun()
 
 
-# --- HEADER BEREICH IN DER HAUPTSEITE (VOLE BREITE) ---
+# --- HAUPTSEITE ---
 logo_path = "kare_logo.png"
 if os.path.exists(logo_path):
     st.image(logo_path, use_container_width=True)
@@ -336,10 +322,8 @@ else:
 
 st.write("")
 
-# --- ABSCHNITT 1: STAMMDATEN & STRASSEN-RUBRIK ---
 with st.container(border=True):
     st.subheader("👤 1. Stammdaten & Straßen-Rubrik")
-
     dropdown_strassen = list(st.session_state.strassen_liste) + [
         "➕ Neue Straße hinzufügen..."
     ]
@@ -380,7 +364,6 @@ with st.container(border=True):
             "Datum der Ablesung", format="DD.MM.YYYY", key="ablesung_datum"
         )
 
-# --- ABSCHNITT 2: ZÄHLERSTÄNDE ---
 with st.container(border=True):
     st.subheader("⚡ 2. Zählerstände")
 
@@ -445,7 +428,6 @@ with st.container(border=True):
         })
         st.divider()
 
-# --- ABSCHNITT 3: FOTODOKUMENTATION ---
 with st.container(border=True):
     st.subheader("📸 3. Fotodokumentation (Zählerfotos)")
     uploaded_files = st.file_uploader(
@@ -465,7 +447,6 @@ with st.container(border=True):
                     use_container_width=True,
                 )
 
-# --- ABSCHNITT 4: UNTERSCHRIFTEN ---
 with st.container(border=True):
     st.subheader("✍️ 4. Unterschriften")
     st.write(
@@ -473,7 +454,6 @@ with st.container(border=True):
     )
 
     col_sig1, col_sig2 = st.columns(2)
-
     with col_sig1:
         st.write("**Vermieter (KARE)**")
         canvas_vermieter = st_canvas(
@@ -486,7 +466,6 @@ with st.container(border=True):
             drawing_mode="freedraw",
             key="canvas_vermieter",
         )
-
     with col_sig2:
         st.write("**Mieter**")
         canvas_mieter = st_canvas(
@@ -502,7 +481,6 @@ with st.container(border=True):
 
 st.write("")
 
-# --- SPEICHERN BUTTON & PDF GENERIERUNG ---
 if st.button(
     "📄 Protokoll generieren & permanent speichern",
     type="primary",
@@ -650,7 +628,6 @@ if st.button(
             pdf.set_y(current_y)
             pdf.ln(4)
 
-        # 4. Unterschriften Sektion in PDF einfügen
         if pdf.get_y() > 220:
             pdf.add_page()
 
@@ -659,7 +636,6 @@ if st.button(
 
         sig_y = pdf.get_y()
 
-        # Vermieter Unterschrift verarbeiten
         if (
             canvas_vermieter.json_data is not None
             and len(canvas_vermieter.json_data["objects"]) > 0
@@ -676,7 +652,6 @@ if st.button(
 
                 pdf.image(temp_sig_v, x=14, y=sig_y, w=85, h=35)
 
-        # Mieter Unterschrift verarbeiten
         if (
             canvas_mieter.json_data is not None
             and len(canvas_mieter.json_data["objects"]) > 0
@@ -693,7 +668,6 @@ if st.button(
 
                 pdf.image(temp_sig_m, x=111, y=sig_y, w=85, h=35)
 
-        # Unterschriftslinien und Beschriftungen unter den Bildern
         pdf.set_y(sig_y + 36)
         pdf.cell(95, 5, "___________________________________", 0, 0, "L")
         pdf.cell(0, 5, "___________________________________", 0, 1, "L")
