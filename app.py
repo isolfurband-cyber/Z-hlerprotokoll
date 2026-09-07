@@ -380,15 +380,29 @@ if st.button(
             current_y = y_start
 
             for idx, uploaded_file in enumerate(uploaded_files):
-                if current_y > 230:
+                if current_y > 220:
                     pdf.add_page()
                     current_y = 20
 
+                # Robustere Konvertierung und Speicherung für FPDF
                 img = Image.open(uploaded_file)
-                temp_img_path = tempfile.NamedTemporaryFile(
+                if img.mode in ("RGBA", "LA") or (
+                    img.mode == "P" and "transparency" in img.info
+                ):
+                    background = Image.new("RGB", img.size, (255, 255, 255))
+                    if img.mode == "P":
+                        img = img.convert("RGBA")
+                    background.paste(img, mask=img.split()[3])
+                    img = background
+                else:
+                    img = img.convert("RGB")
+
+                temp_img_file = tempfile.NamedTemporaryFile(
                     delete=False, suffix=".jpg"
-                ).name
-                img.convert("RGB").save(temp_img_path, "JPEG")
+                )
+                temp_img_path = temp_img_file.name
+                temp_img_file.close()
+                img.save(temp_img_path, "JPEG", quality=90)
 
                 pdf.image(
                     temp_img_path,
@@ -405,8 +419,6 @@ if st.button(
                     current_x += img_width + x_gap
 
             if len(uploaded_files) % 2 != 0:
-                current_y += img_height + y_gap
-            else:
                 current_y += img_height + y_gap
 
             pdf.set_y(current_y)
